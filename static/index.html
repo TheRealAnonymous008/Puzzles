@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puzzle Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">⬡ Puzzle Studio</div>
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="btn-edit">Edit</button>
+    <button class="mode-btn" id="btn-play">Play</button>
+  </div>
+  <div class="hdr-right">
+    <button class="btn" id="export-btn">Export JSON</button>
+    <button class="btn" id="import-btn">Import JSON</button>
+    <input type="file" id="import-file" style="display:none" accept=".json">
+    <button class="btn btn-danger" id="clear-values-btn">Clear Values</button>
+  </div>
+</header>
+
+<div class="app-body">
+
+  <!-- LEFT PANEL -->
+  <div class="panel-left" id="left-panel">
+
+    <!-- EDIT TOOLS -->
+    <div class="panel-section" id="edit-tools">
+      <h3>Edit Tool</h3>
+      <div class="tool-grid">
+        <button class="tool-btn active" id="tool-add-cell">
+          <span class="icon">＋</span><span>Add Cell</span>
+        </button>
+        <button class="tool-btn" id="tool-remove-cell">
+          <span class="icon">✕</span><span>Del Cell</span>
+        </button>
+      </div>
+      <div style="margin-top:10px">
+        <h3 style="margin-bottom:6px">Quick Grid</h3>
+        <div class="dim-row">
+          <input type="number" id="dim-rows" value="4" min="1" max="16" placeholder="rows">
+          <input type="number" id="dim-cols" value="4" min="1" max="16" placeholder="cols">
+          <button class="btn btn-primary" style="padding:5px 10px;font-size:12px" id="make-rect-btn">Make</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYMBOL PALETTE (shared, shown in both modes) -->
+    <div class="panel-section" id="symbol-palette-section">
+      <h3 id="palette-heading">Symbol</h3>
+      <!-- number buttons built by JS -->
+      <div class="palette" id="symbol-palette"></div>
+      <div class="palette-custom">
+        <input type="number" id="palette-custom-input" min="1" max="999" placeholder="other…">
+      </div>
+      <button class="palette-erase" id="palette-erase-btn">✕ Erase symbol</button>
+
+      <!-- Endpoint colour & role -->
+      <div class="ep-role-row" style="margin-top:12px;">
+        <button class="ep-role-btn active" id="ep-role-start">Start</button>
+        <button class="ep-role-btn" id="ep-role-end">End</button>
+      </div>
+      <div class="ep-color-grid" id="endpoint-palette"></div>
+    </div>
+
+    <!-- LINE TOOLS (shared, shown in both modes) -->
+    <div class="panel-section" id="line-tools">
+      <h3>Line Tools</h3>
+        </button>
+        <button class="tool-btn" id="tool-draw-line">
+          <span class="icon">╱</span><span>Draw Line</span>
+        </button>
+        <button class="tool-btn" id="tool-erase-line">
+          <span class="icon">━✕</span><span>Erase Line</span>
+        </button>
+    </div>
+
+    <!-- RULES SECTION (edit only) -->
+    <div class="panel-section" id="rules-section">
+      <div class="collapse-header" id="rules-collapse-header">
+        <h3 style="margin-bottom:0">Rules</h3>
+        <span class="collapse-arrow" id="rules-arrow">▲</span>
+      </div>
+      <div class="collapse-body" id="rules-body" style="max-height:800px">
+        <div id="rules-list" style="margin-top:8px"></div>
+        <div class="rule-form" id="rule-add-form" style="margin-top:8px">
+          <select id="rule-type-select"></select>
+          <div class="rule-schema-desc" id="rule-schema-desc"></div>
+          <div id="rule-params-area"></div>
+          <button class="btn btn-primary" style="width:100%;font-size:12px;margin-top:2px" id="add-rule-btn">Add Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIOLATIONS -->
+    <div class="panel-section">
+      <div class="collapse-header" id="viol-collapse-header">
+        <h3 style="margin-bottom:0">Violations</h3>
+        <span class="collapse-arrow" id="viol-arrow">▲</span>
+      </div>
+      <div class="collapse-body" id="viol-body" style="max-height:400px">
+        <div id="violations-list" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- PLAY ACTIONS (play only) -->
+    <div class="panel-section" id="play-actions" style="display:none">
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="flex:1;font-size:12px" id="clear-all-play-btn">Clear All</button>
+        <button class="btn btn-success" style="flex:1;font-size:12px" id="validate-btn">Check ✓</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-area">
+    <div class="play-banner" id="play-banner" style="display:none">
+      ▶ PLAY MODE — click cells to place/toggle values · Exit via Edit button
+    </div>
+    <div class="canvas-toolbar">
+      <span class="tool-badge" id="toolbar-tool-label">Add Cell</span>
+      <span class="val-badge" id="toolbar-val-badge" style="display:none">
+        <span class="vb-lbl">value</span>
+        <span class="vb-num" id="toolbar-val-num">1</span>
+      </span>
+      <span class="tip" id="toolbar-tip" style="margin-left:4px">
+        Dashed cells are clickable ghost slots — click to add a new cell adjacent to the grid.
+      </span>
+    </div>
+    <div class="grid-scroll">
+      <svg id="grid-svg"></svg>
+    </div>
+    <div class="status-bar">
+      <span><div class="dot" id="status-dot"></div><span id="status-text">—</span></span>
+      <span>Cells: <b id="status-cells">0</b></span>
+      <span>Rules: <b id="status-rules">0</b></span>
+      <span>Mode: <b id="status-mode">Edit</b></span>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel-right">
+    <div class="panel-section">
+      <div class="collapse-header" id="solver-collapse-header">
+        <h3 style="margin-bottom:0">Solver</h3>
+        <span class="collapse-arrow" id="solver-arrow">▲</span>
+      </div>
+      <div class="collapse-body" id="solver-body" style="max-height:800px">
+        <div style="margin-top:8px">
+          <div class="input-row">
+            <label>Domain</label>
+            <input type="text" id="solver-domain" value="1,2,3,4,5,6,7,8,9" placeholder="1,2,...,9">
+          </div>
+          <div class="input-row" style="margin-top:4px">
+            <label>Max sols</label>
+            <input type="number" id="solver-max" value="2" min="1" max="100" style="width:60px">
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px;font-size:12px" id="run-solver-btn">▶ Solve</button>
+        </div>
+        <div id="solve-result" style="margin-top:10px;display:none">
+          <div id="solve-stats"></div>
+          <div style="margin-top:8px">
+            <h3 style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Solve Path</h3>
+            <div class="playback-bar">
+              <button id="playback-prev">◀</button>
+              <span class="step-lbl" id="step-counter">0 / 0</span>
+              <button id="playback-next">▶</button>
+              <button id="playback-reset">⏹</button>
+            </div>
+            <input type="range" id="path-slider" min="0" value="0" style="width:100%;margin-top:6px">
+            <div class="solve-path-list" id="solve-path-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Cell Inspector</h3>
+      <div id="inspector" style="font-size:12px;color:var(--muted);margin-top:4px">No cell selected</div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
