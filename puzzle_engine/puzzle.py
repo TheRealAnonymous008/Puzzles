@@ -110,16 +110,13 @@ class PuzzleState:
 
     def add_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:
         """
-        Add an undirected line segment between two orthogonally adjacent cells.
-        Raises ValueError if either cell is inactive or the cells are not adjacent.
+        Add an undirected line segment
         """
         a, b = (r1, c1), (r2, c2)
-        if not self.grid.has_cell(r1, c1):
-            raise ValueError(f"Cell ({r1},{c1}) is not active")
-        if not self.grid.has_cell(r2, c2):
-            raise ValueError(f"Cell ({r2},{c2}) is not active")
         if abs(r1 - r2) + abs(c1 - c2) != 1:
-            raise ValueError(f"Cells ({r1},{c1}) and ({r2},{c2}) are not orthogonally adjacent")
+            raise ValueError(
+                f"Cells ({r1},{c1}) and ({r2},{c2}) are not orthogonally adjacent"
+            )
         self.lines.add(_make_edge(a, b))
 
     def remove_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:

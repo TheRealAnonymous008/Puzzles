@@ -262,22 +262,22 @@ function dragPreviewLine(gMinR, gMinC) {
   if (!ds?.active || !ds.vertexPath || ds.vertexPath.length < 2) return '';
   const path = ds.vertexPath;
   let html = '';
+
   for (let i = 0; i < path.length - 1; i++) {
     const [vr1, vc1] = path[i];
-    const [vr2, vc2] = path[i+1];
+    const [vr2, vc2] = path[i + 1];
     const cells = edgeVerticesToCells(vr1, vc1, vr2, vc2);
     if (!cells) continue;
     const [cellA, cellB] = cells;
     const activeSet = new Set(
-      (appState.puzzle?.grid?.cells || []).map(([r,c]) => cellKey(r,c))
+      (appState.puzzle?.grid?.cells || []).map(([r, c]) => cellKey(r, c))
     );
-    if (!activeSet.has(cellKey(cellA[0],cellA[1])) || !activeSet.has(cellKey(cellB[0],cellB[1]))) continue;
-    const { x1, y1, x2, y2 } = edgeCoords(cellA[0], cellA[1], cellB[0], cellB[1], gMinR, gMinC);
-    html += `
-      <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
-            stroke="#c084fc" stroke-width="8" stroke-linecap="butt"
-            stroke-dasharray="6,3" opacity="0.7" pointer-events="none"/>
-    `;
+    // Draw preview if at least one side is active
+    if (
+      !activeSet.has(cellKey(cellA[0], cellA[1])) &&
+      !activeSet.has(cellKey(cellB[0], cellB[1]))
+    )
+      continue;
   }
   return html;
 }
@@ -335,12 +335,6 @@ export function renderGrid(dragState = null) {
     }
   }
 
-  // Drawn lines (edges)
-  html += lineSegments(puzzle.lines, gMinR, gMinC, puzzle.symbols);
-
-  // Drag preview (vertex‑based)
-  html += dragPreviewLine(gMinR, gMinC);
-
   // Active cells
   for (const [r, c] of cells) {
     const key     = cellKey(r, c);
@@ -352,6 +346,13 @@ export function renderGrid(dragState = null) {
       playerVal: puzzle.player_values?.[key],
     });
   }
+
+  // Drawn lines (edges)
+  html += lineSegments(puzzle.lines, gMinR, gMinC, puzzle.symbols);
+
+  // Drag preview (vertex‑based)
+  html += dragPreviewLine(gMinR, gMinC);
+
 
   svg.innerHTML = html;
   svg._gMinR = gMinR;

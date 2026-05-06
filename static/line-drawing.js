@@ -26,40 +26,53 @@ function isDrawLineTool() {
  */
 function buildVertexGraph() {
   const cells = appState.puzzle?.grid?.cells || [];
-  const activeSet = new Set(cells.map(([r,c]) => cellKey(r,c)));
+  const activeSet = new Set(cells.map(([r, c]) => cellKey(r, c)));
   const graph = new Map();
+  const vertexKey = (vr, vc) => `${vr},${vc}`;
 
-  function vertexKey(vr, vc) { return `${vr},${vc}`; }
-
+  // 1) Add all corners of active cells as vertices.
   for (const [r, c] of cells) {
-    // All four corners of this cell
-    const corners = [[r, c], [r, c+1], [r+1, c], [r+1, c+1]];
-    // Add all potential edges between corners that are adjacent
-    // Horizontal edge between (r,c) and (r,c+1) if both cells above/below are active
-    const edge1 = [[r,c], [r,c+1]];   // top horizontal
-    const edge2 = [[r+1,c], [r+1,c+1]]; // bottom horizontal
-    const edge3 = [[r,c], [r+1,c]];   // left vertical
-    const edge4 = [[r,c+1], [r+1,c+1]]; // right vertical
-
-    const edges = [edge1, edge2, edge3, edge4];
-    for (const [v1, v2] of edges) {
-      const [vr1, vc1] = v1, [vr2, vc2] = v2;
-      // Check if edge separates two active cells
-      const cellsForEdge = edgeVerticesToCells(vr1, vc1, vr2, vc2);
-      if (!cellsForEdge) continue;
-      const [cellA, cellB] = cellsForEdge;
-      if (!activeSet.has(cellKey(cellA[0],cellA[1])) || !activeSet.has(cellKey(cellB[0],cellB[1]))) continue;
-
-      const k1 = vertexKey(vr1, vc1);
-      const k2 = vertexKey(vr2, vc2);
-      if (!graph.has(k1)) graph.set(k1, []);
-      if (!graph.get(k1).includes(k2)) graph.get(k1).push(k2);
-      if (!graph.has(k2)) graph.set(k2, []);
-      if (!graph.get(k2).includes(k1)) graph.get(k2).push(k1);
-    }
+    const corners = [[r, c], [r, c + 1], [r + 1, c], [r + 1, c + 1]];
+    corners.forEach(([vr, vc]) => {
+      const key = vertexKey(vr, vc);
+      if (!graph.has(key)) graph.set(key, []);
+    });
   }
+
+  // 2) Add edges where at least one adjacent cell is active.
+  const processedEdges = new Set();
+  for (const [r, c] of cells) {
+    const edges = [
+      [[r, c], [r, c + 1]],     // top
+      [[r + 1, c], [r + 1, c + 1]], // bottom
+      [[r, c], [r + 1, c]],     // left
+      [[r, c + 1], [r + 1, c + 1]], // right
+    ];
+
+    edges.forEach(([v1, v2]) => {
+      const edgeKey = JSON.stringify([v1, v2].sort());
+      if (processedEdges.has(edgeKey)) return;
+      processedEdges.add(edgeKey);
+
+      const cellsForEdge = edgeVerticesToCells(v1[0], v1[1], v2[0], v2[1]);
+      if (!cellsForEdge) return;
+      const [cellA, cellB] = cellsForEdge;
+      const aActive = activeSet.has(cellKey(cellA[0], cellA[1]));
+      const bActive = activeSet.has(cellKey(cellB[0], cellB[1]));
+
+      // Accept edge if at least one side is active (boundary edges included)
+      if (!aActive && !bActive) return;
+
+      const k1 = vertexKey(v1[0], v1[1]);
+      const k2 = vertexKey(v2[0], v2[1]);
+      if (graph.has(k1) && !graph.get(k1).includes(k2)) graph.get(k1).push(k2);
+      if (graph.has(k2) && !graph.get(k2).includes(k1)) graph.get(k2).push(k1);
+    });
+  }
+
   return graph;
 }
+
 
 /**
  * Helper: convert two adjacent vertices to the two cells they separate.
@@ -185,16 +198,22 @@ async function onMouseUp(e) {
   if (!isDrawLineTool() || !ds.vertexPath || ds.vertexPath.length < 2) return;
 
   // Commit each edge of the vertex path
-  for (let i = 0; i < ds.vertexPath.length - 1; i++) {
+   for (let i = 0; i < ds.vertexPath.length - 1; i++) {
     const [vr1, vc1] = ds.vertexPath[i];
-    const [vr2, vc2] = ds.vertexPath[i+1];
+    const [vr2, vc2] = ds.vertexPath[i + 1];
     const cells = edgeVerticesToCells(vr1, vc1, vr2, vc2);
     if (!cells) continue;
     const [cellA, cellB] = cells;
-    // both cells must still be active (could have been deleted during drag? unlikely)
-    if (!isActiveCell(cellA[0], cellA[1]) || !isActiveCell(cellB[0], cellB[1])) continue;
+    // Allow edge if at least ONE cell is active (boundary edge)
+    if (
+      !isActiveCell(cellA[0], cellA[1]) &&
+      !isActiveCell(cellB[0], cellB[1])
+    )
+      continue;
     try {
-      await api.addLineSegment(cellA[0], cellA[1], cellB[0], cellB[1]);
+      await api.addLineSegment(
+        cellA[0], cellA[1], cellB[0], cellB[1]
+      );
     } catch (err) {
       console.error('Failed to add line segment', err);
     }
