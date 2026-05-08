@@ -171,22 +171,22 @@ document.getElementById('ep-role-end').addEventListener('click', () => selectEnd
 // ── Placement target buttons ────────────────────────────────────────
 document.getElementById('target-cell').addEventListener('click', () => {
   appState.update({ placementTarget: 'cell' });
-  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
-    setTool('place-symbol');
+  if (appState.mode === 'edit') {
+    setTool(appState.eraseMode ? 'erase-symbol' : 'place-symbol');
   }
 });
 
 document.getElementById('target-vertex').addEventListener('click', () => {
   appState.update({ placementTarget: 'vertex' });
-  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
-    setTool('place-symbol');
+  if (appState.mode === 'edit') {
+    setTool(appState.eraseMode ? 'erase-symbol' : 'place-symbol');
   }
 });
 
 document.getElementById('target-edge').addEventListener('click', () => {
   appState.update({ placementTarget: 'edge' });
-  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
-    setTool('place-symbol');
+  if (appState.mode === 'edit') {
+    setTool(appState.eraseMode ? 'erase-symbol' : 'place-symbol');
   }
 });
 

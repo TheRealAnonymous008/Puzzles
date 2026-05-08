@@ -94,12 +94,11 @@ export function selectErase() {
   document.querySelectorAll('.ep-color-btn').forEach(b => b.classList.remove('selected'));
   const inp = document.getElementById('palette-custom-input');
   if (inp) inp.value = '';
+
+  // In edit mode, always switch to the symbol eraser, overriding any line tool
   if (appState.mode === 'edit') {
-    const lineTools = ['draw-line', 'erase-line'];
-    if (!lineTools.includes(appState.activeTool)) {
-      appState.update({ activeTool: 'erase-symbol' });
-      syncToolButtons();
-    }
+    appState.update({ activeTool: 'erase-symbol' });
+    syncToolButtons();
   }
   updateToolbarBadge();
 }
@@ -107,15 +106,12 @@ export function selectErase() {
 // ── Helper ─────────────────────────────────────────────────────────────────
 
 function switchToPlaceTool() {
-  // Only switch if we are in edit mode and NOT already using a line tool
+  // Only in edit mode – always switch to place-symbol, even when a line tool is active
   if (appState.mode !== 'edit') return;
-  const lineTools = ['draw-line', 'erase-line'];
-  if (lineTools.includes(appState.activeTool)) return;   // leave line tool alone
-  if (appState.activeTool !== 'place-symbol') {
-    appState.update({ activeTool: 'place-symbol' });
-    syncToolButtons();
-  }
+  appState.update({ activeTool: 'place-symbol' });
+  syncToolButtons();
 }
+
 // ── Tool button sync (for edit tools) ─────────────────────────────────────
 
 export function syncToolButtons() {
