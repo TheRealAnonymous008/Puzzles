@@ -246,13 +246,19 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
 });
 
 // ── Clear all player values ────────────────────────────────────────────
+// "Clear Values" button (header)
 document.getElementById('clear-values-btn').addEventListener('click', async () => {
-  refresh(await api.clearAllPlayerValues());
+  await api.clearAllPlayerValues();
+  await api.clearLines();            // ← remove player-drawn lines
+  refresh(await api.getState());
   playbackReset();
 });
 
+// "Clear All" button (play mode)
 document.getElementById('clear-all-play-btn').addEventListener('click', async () => {
-  refresh(await api.clearAllPlayerValues());
+  await api.clearAllPlayerValues();
+  await api.clearLines();            // ← remove player-drawn lines
+  refresh(await api.getState());
   playbackReset();
 });
 
@@ -505,11 +511,12 @@ document.querySelectorAll('.collapse-header').forEach(header => {
 
 // ── Solver ─────────────────────────────────────────────────────────────
 document.getElementById('run-solver-btn').addEventListener('click', async () => {
-  playbackReset();
+  playbackReset();                              // clears solveLines and overlay
   const maxSols = document.getElementById('solver-max').value;
-  const result = await api.solve('', maxSols);   // domain is ignored by the server now
+  const result = await api.solve('', maxSols); // domain ignored by server
   appState.update({ solveResult: result });
 
+  // Show stats
   document.getElementById('solve-stats').innerHTML = `
     <div class="solve-stat"><span class="lbl">Has solution</span>
       <span class="val ${result.has_solution ? 'yes' : 'no'}">${result.has_solution ? 'Yes' : 'No'}</span></div>
@@ -521,10 +528,9 @@ document.getElementById('run-solver-btn').addEventListener('click', async () => 
       <span class="val">${result.searched_nodes.toLocaleString()}</span></div>
   `;
 
-  const solveResDiv = document.getElementById('solve-result');
-  solveResDiv.style.display = 'block';   // always show result panel
+  document.getElementById('solve-result').style.display = 'block';
 
-  // Show solution lines if they exist
+  // Textual list of solution lines
   const linesListDiv = document.getElementById('solution-lines');
   if (result.lines && result.lines.length > 0) {
     linesListDiv.innerHTML = `<h3 style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Solution Lines</h3>
@@ -536,8 +542,8 @@ document.getElementById('run-solver-btn').addEventListener('click', async () => 
     linesListDiv.style.display = 'none';
   }
 
-  // If there's a solve path (cell assignments), we still show playback, but now it's unused.
-  // We'll hide playback controls entirely since the solver no longer gives cell paths.
+  // Store the solution lines so they appear on the grid
+  appState.update({ solveLines: result.lines || [] });
   document.getElementById('solve-path-controls').style.display = 'none';
 });
 
@@ -571,7 +577,12 @@ function setPlaybackStep(idx) {
 }
 
 function playbackReset() {
-  appState.update({ playbackIdx: -1, solveOverlay: {}, solveResult: null });
+  appState.update({
+    playbackIdx: -1,
+    solveOverlay: {},
+    solveResult: null,
+    solveLines: null            // ← clear solver lines from grid
+  });
   document.getElementById('solve-path-list').innerHTML = '';
   document.getElementById('solve-result').style.display = 'none';
   document.getElementById('step-counter').textContent = '0 / 0';

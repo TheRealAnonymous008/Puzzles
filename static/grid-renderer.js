@@ -389,6 +389,22 @@ export function renderGrid(dragState = null) {
   const allEdgeData = allEdges(cells, gMinR, gMinC, gMaxR, gMaxC);
   html += renderEdges(gMinR, gMinC, allEdgeData, puzzle.symbols || {});
 
+  // --- Render solution lines ---
+  if (appState.solveLines && appState.solveLines.length) {
+    const activeSet = new Set(cells.map(([r, c]) => cellKey(r, c)));
+    for (const [a, b] of appState.solveLines) {
+      const [r1, c1] = a, [r2, c2] = b;
+      // Only draw if both cells are active (should always be true)
+      if (!activeSet.has(cellKey(r1, c1)) || !activeSet.has(cellKey(r2, c2))) continue;
+      const { x1, y1, x2, y2 } = edgeCoords(r1, c1, r2, c2, gMinR, gMinC);
+      html += `
+        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+              stroke="#c084fc" stroke-width="6" stroke-dasharray="8,4"
+              opacity="0.8" pointer-events="none"/>
+      `;
+    }
+  }
+
   svg.innerHTML = html;
   svg._gMinR = gMinR;
   svg._gMinC = gMinC;
