@@ -506,9 +506,8 @@ document.querySelectorAll('.collapse-header').forEach(header => {
 // ── Solver ─────────────────────────────────────────────────────────────
 document.getElementById('run-solver-btn').addEventListener('click', async () => {
   playbackReset();
-  const domain = document.getElementById('solver-domain').value;
   const maxSols = document.getElementById('solver-max').value;
-  const result = await api.solve(domain, maxSols);
+  const result = await api.solve('', maxSols);   // domain is ignored by the server now
   appState.update({ solveResult: result });
 
   document.getElementById('solve-stats').innerHTML = `
@@ -521,12 +520,25 @@ document.getElementById('run-solver-btn').addEventListener('click', async () => 
     <div class="solve-stat"><span class="lbl">Nodes searched</span>
       <span class="val">${result.searched_nodes.toLocaleString()}</span></div>
   `;
-  document.getElementById('solve-result').style.display = result.has_solution ? '' : 'none';
 
-  if (result.has_solution && result.solve_path?.length) {
-    renderSolvePath(result.solve_path);
-    setPlaybackStep(result.solve_path.length - 1);
+  const solveResDiv = document.getElementById('solve-result');
+  solveResDiv.style.display = 'block';   // always show result panel
+
+  // Show solution lines if they exist
+  const linesListDiv = document.getElementById('solution-lines');
+  if (result.lines && result.lines.length > 0) {
+    linesListDiv.innerHTML = `<h3 style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Solution Lines</h3>
+      <ol style="margin:0;padding-left:18px;font-size:11px;">
+        ${result.lines.map(([a, b]) => `<li>(${a[0]},${a[1]}) ↔ (${b[0]},${b[1]})</li>`).join('')}
+      </ol>`;
+    linesListDiv.style.display = 'block';
+  } else {
+    linesListDiv.style.display = 'none';
   }
+
+  // If there's a solve path (cell assignments), we still show playback, but now it's unused.
+  // We'll hide playback controls entirely since the solver no longer gives cell paths.
+  document.getElementById('solve-path-controls').style.display = 'none';
 });
 
 function renderSolvePath(path) {

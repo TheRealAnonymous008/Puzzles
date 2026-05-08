@@ -32,20 +32,27 @@ def build_adjacency(state: "PuzzleState") -> Dict[CellCoord, List[CellCoord]]:
 
 
 # ---------------------------------------------------------------------------
-# Convert a cell edge to the two vertices it lies on
+# Convert a cell edge to the two vertices it lies on (CORRECTED)
 # ---------------------------------------------------------------------------
 
 def cell_edge_to_vertices(edge: Edge) -> List[VertexCoord]:
-    """Return the two vertices that form the shared border of two adjacent cells."""
+    """
+    Return the two vertices that form the shared border of two adjacent cells.
+    Works for both orthogonal directions.
+    """
     a, b = edge
-    if a[0] == b[0]:          # horizontal adjacency → vertical edge
-        row = a[0]
-        col_left = min(a[1], b[1])
-        return [(row, col_left), (row + 1, col_left)]
-    else:                     # vertical adjacency → horizontal edge
-        col = a[1]
-        row_top = min(a[0], b[0])
-        return [(row_top, col), (row_top, col + 1)]
+    r1, c1 = a
+    r2, c2 = b
+    if r1 == r2:
+        # horizontal adjacency → shared VERTICAL edge
+        row = r1
+        col_right = max(c1, c2)          # the column of the shared border
+        return [(row, col_right), (row + 1, col_right)]
+    else:
+        # vertical adjacency → shared HORIZONTAL edge
+        col = c1
+        row_bottom = max(r1, r2)         # the row of the shared border
+        return [(row_bottom, col), (row_bottom, col + 1)]
 
 
 # ---------------------------------------------------------------------------

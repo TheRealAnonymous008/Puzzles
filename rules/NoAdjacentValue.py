@@ -1,6 +1,6 @@
 from rules._common import * 
 
-@RuleRegistry.register
+# @RuleRegistry.register
 class NoAdjacentValue(Rule):
     """
     No two adjacent (4-directional) cells may share the same player value.

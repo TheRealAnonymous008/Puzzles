@@ -1,7 +1,7 @@
 from rules._common import * 
 
 
-@RuleRegistry.register
+# @RuleRegistry.register
 class AllCellsFilled(Rule):
     """Every active cell must have a player-assigned value."""
     rule_type = "all_cells_filled"

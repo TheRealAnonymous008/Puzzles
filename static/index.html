@@ -158,11 +158,6 @@
       </div>
       <div class="collapse-body" id="solver-body" style="max-height:800px">
         <div style="margin-top:8px">
-          <div class="input-row">
-            <label>Domain</label>
-            <input type="text" id="solver-domain" value="1,2,3,4,5,6,7,8,9" placeholder="1,2,...,9">
-          </div>
-          <div class="input-row" style="margin-top:4px">
             <label>Max sols</label>
             <input type="number" id="solver-max" value="2" min="1" max="100" style="width:60px">
           </div>
@@ -170,16 +165,20 @@
         </div>
         <div id="solve-result" style="margin-top:10px;display:none">
           <div id="solve-stats"></div>
-          <div style="margin-top:8px">
-            <h3 style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Solve Path</h3>
-            <div class="playback-bar">
-              <button id="playback-prev">◀</button>
-              <span class="step-lbl" id="step-counter">0 / 0</span>
-              <button id="playback-next">▶</button>
-              <button id="playback-reset">⏹</button>
+          <div id="solution-lines" style="margin-top:8px;display:none"></div>
+          <div id="solve-path-controls" style="margin-top:8px;display:none">
+            <!-- old playback controls kept for compatibility but hidden now -->
+            <div style="margin-top:8px">
+              <h3 style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Solve Path</h3>
+              <div class="playback-bar">
+                <button id="playback-prev">◀</button>
+                <span class="step-lbl" id="step-counter">0 / 0</span>
+                <button id="playback-next">▶</button>
+                <button id="playback-reset">⏹</button>
+              </div>
+              <input type="range" id="path-slider" min="0" value="0" style="width:100%;margin-top:6px">
+              <div class="solve-path-list" id="solve-path-list"></div>
             </div>
-            <input type="range" id="path-slider" min="0" value="0" style="width:100%;margin-top:6px">
-            <div class="solve-path-list" id="solve-path-list"></div>
           </div>
         </div>
       </div>

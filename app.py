@@ -291,16 +291,8 @@ def lines_clear():
 # ---------------------------------------------------------------------------
 @app.get("/api/solve")
 def solve():
-    domain_param = request.args.get("domain")
-    max_sol = int(request.args.get("max_solutions", _solver_max_solutions))
-    if domain_param:
-        try:
-            domain = [int(x) for x in domain_param.split(",")]
-        except ValueError:
-            return _err("domain must be comma-separated integers")
-    else:
-        domain = _solver_domain
-    solver = Solver(domain=domain, max_solutions=max(1, min(max_sol, 100)))
+    max_sol = int(request.args.get("max_solutions", 2))
+    solver = Solver(max_solutions=max(1, min(max_sol, 100)))
     result = solver.solve(_state)
     return jsonify(result.to_dict())
 

@@ -23,7 +23,6 @@ class NoLineOverlapRule(Rule):
 
         # All endpoints (cells & vertices)
         endpoints = get_all_endpoints(state)
-        # Build set of all endpoint locations for quick lookup
         ep_locs = set()
         for roles in endpoints.values():
             for locs in roles.values():
@@ -32,18 +31,14 @@ class NoLineOverlapRule(Rule):
         # --- Check cell degrees ---
         for cell, deg in cell_deg.items():
             if cell in ep_locs:
-                # Determine role
                 role = None
                 for roles in endpoints.values():
                     if cell in roles["start"]:
-                        role = "start"
-                        break
+                        role = "start"; break
                     elif cell in roles["end"]:
-                        role = "end"
-                        break
+                        role = "end"; break
                     elif cell in roles["both"]:
-                        role = "both"
-                        break
+                        role = "both"; break
                 if role == "both":
                     if deg not in (0, 2):
                         violations.append(Violation(
