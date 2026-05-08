@@ -1,29 +1,10 @@
 """
-Line-drawing rules for endpoint (Start/End) puzzle types.
-
-These rules operate on PuzzleState.lines and PuzzleState.symbols
-rather than PuzzleState.player_values.
-
-Rules
------
-LineConnectsEndpointsRule
-    Every Start cell must be reachable from exactly one End cell of the
-    same color_id via the drawn lines, and vice versa.
-
-NoLineOverlapRule
-    No cell may be an interior node of more than one distinct line path
-    (i.e. have line-degree > 2), and no cell may appear in line segments
-    of two different colors.
-    Endpoint cells (Start/End) must have exactly 1 line connection.
-    Interior cells must have exactly 2 line connections (pass-through).
-
-AllEndpointsConnectedRule
-    All endpoint pairs must be fully connected (convenience wrapper that
-    also checks completeness — no partially drawn lines).
+Line-drawing helpers: adjacency, endpoint collection, vertex mapping.
+These functions are used by the line‑related rules.
 """
 from __future__ import annotations
 from collections import defaultdict
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from puzzle_engine.grid import CellCoord
 from puzzle_engine.symbol import EndpointSymbol
@@ -32,13 +13,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from puzzle_engine.puzzle import PuzzleState
 
+# Type aliases
+Edge = Tuple[CellCoord, CellCoord]
+VertexCoord = Tuple[int, int]
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Basic adjacency from drawn lines (cell‑to‑cell)
 # ---------------------------------------------------------------------------
 
 def build_adjacency(state: "PuzzleState") -> Dict[CellCoord, List[CellCoord]]:
-    """Build adjacency map from the drawn lines."""
+    """Build cell adjacency map from the drawn lines."""
     adj: Dict[CellCoord, List[CellCoord]] = defaultdict(list)
     for a, b in state.lines:
         adj[a].append(b)
@@ -46,9 +31,48 @@ def build_adjacency(state: "PuzzleState") -> Dict[CellCoord, List[CellCoord]]:
     return adj
 
 
+# ---------------------------------------------------------------------------
+# Convert a cell edge to the two vertices it lies on
+# ---------------------------------------------------------------------------
+
+def cell_edge_to_vertices(edge: Edge) -> List[VertexCoord]:
+    """Return the two vertices that form the shared border of two adjacent cells."""
+    a, b = edge
+    if a[0] == b[0]:          # horizontal adjacency → vertical edge
+        row = a[0]
+        col_left = min(a[1], b[1])
+        return [(row, col_left), (row + 1, col_left)]
+    else:                     # vertical adjacency → horizontal edge
+        col = a[1]
+        row_top = min(a[0], b[0])
+        return [(row_top, col), (row_top, col + 1)]
+
+
+# ---------------------------------------------------------------------------
+# Vertex‑line graph (vertices connected by drawn lines)
+# ---------------------------------------------------------------------------
+
+def build_vertex_line_graph(state: "PuzzleState") -> Dict[VertexCoord, List[VertexCoord]]:
+    """
+    Build a graph of vertices connected by drawn cell edges.
+    Each vertex maps to a list of adjacent vertices reachable via one line edge.
+    """
+    graph = defaultdict(list)
+    for edge in state.lines:
+        v1, v2 = cell_edge_to_vertices(edge)
+        graph[v1].append(v2)
+        graph[v2].append(v1)
+    return graph
+
+
+# ---------------------------------------------------------------------------
+# Endpoint collection (cells + vertices, grouped by color_id and role)
+# ---------------------------------------------------------------------------
+
 def collect_endpoints(state: "PuzzleState") -> Dict[int, Dict[str, List[CellCoord]]]:
     """
-    Return { color_id: {"start": [...], "end": [...]} } from symbols.
+    DEPRECATED – returns only cell endpoints.
+    Kept for backward compatibility with older rules.
     """
     result: Dict[int, Dict[str, List[CellCoord]]] = defaultdict(lambda: {"start": [], "end": []})
     for cell, sym in state.symbols.items():
@@ -57,27 +81,18 @@ def collect_endpoints(state: "PuzzleState") -> Dict[int, Dict[str, List[CellCoor
     return result
 
 
-def trace_path(start: CellCoord, adj: Dict[CellCoord, List[CellCoord]],
-                endpoints: Set[CellCoord]) -> Optional[List[CellCoord]]:
+def get_all_endpoints(state: "PuzzleState") -> Dict[int, Dict[str, List]]:
     """
-    Follow the unique path from `start` through the line network.
-    Returns the ordered list of cells from start to the other endpoint,
-    or None if the path branches or forms a loop.
+    Return { color_id: {"start": [...], "end": [...], "both": [...]} }
+    Each entry is either a CellCoord (cell symbol) or a VertexCoord (vertex symbol).
     """
-    path = [start]
-    prev = None
-    current = start
-    while True:
-        neighbors = [n for n in adj.get(current, []) if n != prev]
-        if len(neighbors) == 0:
-            # Dead end — return path as-is (may be an endpoint)
-            return path
-        if len(neighbors) > 1:
-            return None  # Branches — invalid
-        nxt = neighbors[0]
-        if nxt in path:
-            return None  # Loop
-        path.append(nxt)
-        prev, current = current, nxt
-        if current in endpoints:
-            return path  # Reached another endpoint
+    result: Dict[int, Dict[str, List]] = defaultdict(lambda: {"start": [], "end": [], "both": []})
+    # cell endpoints
+    for cell, sym in state.symbols.items():
+        if isinstance(sym, EndpointSymbol):
+            result[sym.color_id][sym.role].append(cell)
+    # vertex endpoints
+    for vertex, sym in state.vertex_symbols.items():
+        if isinstance(sym, EndpointSymbol):
+            result[sym.color_id][sym.role].append(vertex)
+    return result

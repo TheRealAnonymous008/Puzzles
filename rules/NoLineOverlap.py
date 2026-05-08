@@ -1,12 +1,13 @@
-from rules._common import * 
+from rules._common import *
 
 @RuleRegistry.register
-class NoLineOverlap(Rule):
+class NoLineOverlapRule(Rule):
     """
-    No cell may be covered by two different line paths.
-    Each non-endpoint cell on a line must have exactly 2 line connections
-    (enter and exit). Endpoint cells must have exactly 1.
-    Lines of different colors may not share any cell.
+    No cell may have line‑degree > 2, and no vertex may serve as interior
+    node for two different colors.
+
+    Endpoint cells/vertices must have exactly 1 line connection,
+    except 'both' endpoints which may have 2 (if they form a loop).
     """
     rule_type = "no_line_overlap"
     param_schema = {}
@@ -14,65 +15,78 @@ class NoLineOverlap(Rule):
     def check(self, state: "PuzzleState") -> List[Violation]:
         violations: List[Violation] = []
 
-        if not state.lines:
-            return []
+        # Cell degree from drawn lines
+        cell_deg = defaultdict(int)
+        for a, b in state.lines:
+            cell_deg[a] += 1
+            cell_deg[b] += 1
 
-        adj = build_adjacency(state)
-        endpoints_by_color = collect_endpoints(state)
+        # All endpoints (cells & vertices)
+        endpoints = get_all_endpoints(state)
+        # Build set of all endpoint locations for quick lookup
+        ep_locs = set()
+        for roles in endpoints.values():
+            for locs in roles.values():
+                ep_locs.update(locs)
 
-        # Build a map from cell -> color_id for endpoint cells
-        cell_color: Dict[CellCoord, int] = {}
-        all_endpoints: Set[CellCoord] = set()
-        for color_id, data in endpoints_by_color.items():
-            for cell in data["start"] + data["end"]:
-                cell_color[cell] = color_id
-                all_endpoints.add(cell)
-
-        # For each connected component of lines, determine which color it belongs to
-        visited: Set[CellCoord] = set()
-        # Map cell -> color determined from which endpoint it's connected to
-        cell_line_color: Dict[CellCoord, int] = {}
-
-        # BFS flood fill from endpoint cells to color-label every line cell
-        queue: deque = deque()
-        for color_id, data in endpoints_by_color.items():
-            for cell in data["start"] + data["end"]:
-                if cell in adj:
-                    queue.append((cell, color_id))
-                    cell_line_color[cell] = color_id
-
-        while queue:
-            cell, color = queue.popleft()
-            if cell in visited:
-                continue
-            visited.add(cell)
-            for nb in adj.get(cell, []):
-                if nb in cell_line_color and cell_line_color[nb] != color:
+        # --- Check cell degrees ---
+        for cell, deg in cell_deg.items():
+            if cell in ep_locs:
+                # Determine role
+                role = None
+                for roles in endpoints.values():
+                    if cell in roles["start"]:
+                        role = "start"
+                        break
+                    elif cell in roles["end"]:
+                        role = "end"
+                        break
+                    elif cell in roles["both"]:
+                        role = "both"
+                        break
+                if role == "both":
+                    if deg not in (0, 2):
+                        violations.append(Violation(
+                            rule_id=self.rule_type,
+                            message=f"Cell {cell} is both start and end, must have 0 or 2 line connections, got {deg}.",
+                            cells=[cell]
+                        ))
+                else:
+                    if deg != 1:
+                        violations.append(Violation(
+                            rule_id=self.rule_type,
+                            message=f"Endpoint cell {cell} must have exactly 1 line connection, got {deg}.",
+                            cells=[cell]
+                        ))
+            else:
+                if deg > 2:
                     violations.append(Violation(
                         rule_id=self.rule_type,
-                        message=f"Lines of different colors meet at or near {nb}",
-                        cells=[cell, nb],
+                        message=f"Interior cell {cell} has degree {deg}>2.",
+                        cells=[cell]
                     ))
-                elif nb not in cell_line_color:
-                    cell_line_color[nb] = color
-                    queue.append((nb, color))
 
-        # Check degree constraints
-        for cell, neighbors in adj.items():
-            degree = len(neighbors)
-            is_endpoint = cell in all_endpoints
-            if is_endpoint and degree > 1:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Endpoint cell {cell} has {degree} line connections (must be 1)",
-                    cells=[cell],
-                ))
-            elif not is_endpoint and degree > 2:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Cell {cell} has {degree} line connections (max 2 for interior cells)",
-                    cells=[cell],
-                ))
+        # --- Check vertex degrees (vertex graph) ---
+        vertex_graph = build_vertex_line_graph(state)
+        for color_id, roles in endpoints.items():
+            for role, locs in roles.items():
+                for loc in locs:
+                    if isinstance(loc, tuple) and len(loc) == 2 and loc in state.vertex_symbols:
+                        deg = len(vertex_graph.get(loc, []))
+                        if role == "both":
+                            if deg not in (0, 2):
+                                violations.append(Violation(
+                                    rule_id=self.rule_type,
+                                    message=f"Vertex {loc} with role both must have degree 0 or 2, got {deg}.",
+                                    cells=[]
+                                ))
+                        else:
+                            if deg != 1:
+                                violations.append(Violation(
+                                    rule_id=self.rule_type,
+                                    message=f"Endpoint vertex {loc} must have exactly 1 line connection, got {deg}.",
+                                    cells=[]
+                                ))
 
         return violations
 
@@ -80,9 +94,8 @@ class NoLineOverlap(Rule):
         return {}
 
     @classmethod
-    def from_params(cls, params: dict) -> "NoLineOverlap":
+    def from_params(cls, params: dict) -> "NoLineOverlapRule":
         return cls()
 
     def describe(self) -> str:
-        return "Lines may not overlap — each cell can belong to at most one line"
-
+        return "Line overlap is not allowed (degree≤2, endpoints degree 1 or 2 for both)"

@@ -16,6 +16,7 @@ function vertexKeyStr(r, c) { return `${r},${c}`; }
 
 const VERTEX_RADIUS = 6;
 const EDGE_SYMBOL_SIZE = 16;
+const VERTEX_CLICK_RADIUS = 12;   
 
 function computeBounds(cells) {
   if (!cells.length) return { minR: 0, minC: 0, maxR: 2, maxC: 2 };
@@ -248,29 +249,36 @@ function renderVertices(gMinR, gMinC, vertices, symbols) {
   let html = '';
   const isVertexTool = (appState.placementTarget === 'vertex' &&
                         (appState.activeTool === 'place-symbol' || appState.eraseMode));
+
   for (const [vr, vc] of vertices) {
     const key = `v:${vr},${vc}`;
     const sym = symbols[key];
     const x = cx(vc, gMinC), y = cy(vr, gMinR);
+
     if (sym) {
-      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_RADIUS+2}" fill="#1e1e2e" stroke="#2e2e38" stroke-width="1.5"
+      // Large invisible click target (always present for easy clicking)
+      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_CLICK_RADIUS}" fill="transparent"
                        pointer-events="${isVertexTool ? 'auto' : 'none'}"
                        cursor="${isVertexTool ? 'pointer' : 'default'}"
                        data-vertex-row="${vr}" data-vertex-col="${vc}"/>`;
+      // Visible symbol badge (small)
+      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_RADIUS + 2}" fill="#1e1e2e"
+                       stroke="#2e2e38" stroke-width="1.5" pointer-events="none"/>`;
       const label = sym.display_label ? sym.display_label() : '';
       html += `<text x="${x}" y="${y + 5}" text-anchor="middle" fill="#a78bfa"
                      font-size="12" font-family="DM Mono" font-weight="600"
                      pointer-events="none">${label}</text>`;
     } else if (isVertexTool) {
-      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_RADIUS}" fill="none" stroke="#2a2a40"
-                       stroke-width="1.5" stroke-dasharray="3,3"
+      // Ghost vertex: large hit target + small visual dashed circle
+      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_CLICK_RADIUS}" fill="transparent"
                        pointer-events="auto" cursor="pointer"
                        data-vertex-row="${vr}" data-vertex-col="${vc}"/>`;
+      html += `<circle cx="${x}" cy="${y}" r="${VERTEX_RADIUS}" fill="none" stroke="#2a2a40"
+                       stroke-width="1.5" stroke-dasharray="3,3" pointer-events="none"/>`;
     }
   }
   return html;
 }
-
 function renderEdges(gMinR, gMinC, edges, symbols) {
   let html = '';
   const isEdgeTool = (appState.placementTarget === 'edge' &&

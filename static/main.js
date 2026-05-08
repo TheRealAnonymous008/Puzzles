@@ -167,6 +167,7 @@ document.getElementById('endpoint-palette').addEventListener('click', (e) => {
 
 document.getElementById('ep-role-start').addEventListener('click', () => selectEndpointRole('start'));
 document.getElementById('ep-role-end').addEventListener('click', () => selectEndpointRole('end'));
+document.getElementById('ep-role-both').addEventListener('click', () => selectEndpointRole('both'));
 
 // ── Placement target buttons ────────────────────────────────────────
 document.getElementById('target-cell').addEventListener('click', () => {

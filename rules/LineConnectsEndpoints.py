@@ -1,89 +1,68 @@
-from rules._common import * 
+from rules._common import *
 
 @RuleRegistry.register
-class LineConnectsEndpoints(Rule):
+class LineConnectsEndpointsRule(Rule):
     """
-    Every Start cell must be connected by a continuous line to exactly one
-    End cell of the same color, with no branching or loops.
-    This is the core rule for line-drawing (Numberlink-style) puzzles.
+    For each color_id, all start and end points must be connected via lines.
+    A 'both' endpoint counts as start and end; it must lie on a cycle that
+    returns to itself.
     """
     rule_type = "line_connects_endpoints"
     param_schema = {}
 
     def check(self, state: "PuzzleState") -> List[Violation]:
-        violations: List[Violation] = []
-        endpoints_by_color = collect_endpoints(state)
+        violations = []
+        endpoints = get_all_endpoints(state)
+        vertex_graph = build_vertex_line_graph(state)
 
-        if not endpoints_by_color:
-            return []  # No endpoints placed yet
-
-        adj = build_adjacency(state)
-        all_endpoints: Set[CellCoord] = set()
-        for color_data in endpoints_by_color.values():
-            all_endpoints.update(color_data["start"])
-            all_endpoints.update(color_data["end"])
-
-        for color_id, color_data in sorted(endpoints_by_color.items()):
-            starts = color_data["start"]
-            ends   = color_data["end"]
-
-            if len(starts) != 1 or len(ends) != 1:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Color {color_id}: expected exactly 1 Start and 1 End "
-                            f"(found {len(starts)} starts, {len(ends)} ends)",
-                    cells=starts + ends,
-                ))
+        for color_id, roles in endpoints.items():
+            starts = roles["start"] + roles["both"]
+            ends   = roles["end"]   + roles["both"]
+            if not starts and not ends:
                 continue
 
-            start_cell = starts[0]
-            end_cell   = ends[0]
+            # Collect all vertices that are "seeded" by this color's endpoints.
+            # For a cell endpoint, its four corner vertices are added.
+            seed_vertices = set()
+            for loc in starts + ends:
+                if isinstance(loc, tuple) and len(loc) == 2:
+                    if loc in state.symbols:            # cell endpoint
+                        r, c = loc
+                        seed_vertices.update([(r, c), (r, c+1), (r+1, c), (r+1, c+1)])
+                    elif loc in state.vertex_symbols:   # vertex endpoint
+                        seed_vertices.add(loc)
 
-            # Check start has exactly one line connection
-            start_degree = len(adj.get(start_cell, []))
-            if start_degree == 0:
-                # Not yet drawn — silent (puzzle incomplete, not violated)
-                continue
-            if start_degree > 1:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Color {color_id}: Start cell {start_cell} has "
-                            f"{start_degree} line connections (must have 1)",
-                    cells=[start_cell],
-                ))
-                continue
+            # BFS over the vertex graph starting from all seed vertices
+            visited = set()
+            stack = list(seed_vertices)
+            while stack:
+                v = stack.pop()
+                if v in visited:
+                    continue
+                visited.add(v)
+                for nb in vertex_graph.get(v, []):
+                    if nb not in visited:
+                        stack.append(nb)
 
-            # Trace from start
-            path = _trace_path(start_cell, adj, all_endpoints)
-            if path is None:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Color {color_id}: line from Start {start_cell} "
-                            f"branches or loops",
-                    cells=[start_cell],
-                ))
-                continue
-
-            # Path must terminate at the correct end cell
-            terminal = path[-1]
-            if terminal != end_cell:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Color {color_id}: line from Start {start_cell} "
-                            f"reaches {terminal} instead of End {end_cell}",
-                    cells=[start_cell, terminal, end_cell],
-                ))
-                continue
-
-            # End cell must also have exactly one connection
-            end_degree = len(adj.get(end_cell, []))
-            if end_degree > 1:
-                violations.append(Violation(
-                    rule_id=self.rule_type,
-                    message=f"Color {color_id}: End cell {end_cell} has "
-                            f"{end_degree} connections (must have 1)",
-                    cells=[end_cell],
-                ))
+            # Every endpoint must be reachable via at least one of its associated vertices
+            for loc in starts + ends:
+                if isinstance(loc, tuple) and len(loc) == 2:
+                    if loc in state.symbols:            # cell endpoint
+                        r, c = loc
+                        corners = [(r, c), (r, c+1), (r+1, c), (r+1, c+1)]
+                        if not any(v in visited for v in corners):
+                            violations.append(Violation(
+                                rule_id=self.rule_type,
+                                message=f"Color {color_id} endpoint {loc} is not connected.",
+                                cells=[loc]
+                            ))
+                    elif loc in state.vertex_symbols:   # vertex endpoint
+                        if loc not in visited:
+                            violations.append(Violation(
+                                rule_id=self.rule_type,
+                                message=f"Color {color_id} vertex endpoint {loc} is not connected.",
+                                cells=[]
+                            ))
 
         return violations
 
@@ -91,9 +70,8 @@ class LineConnectsEndpoints(Rule):
         return {}
 
     @classmethod
-    def from_params(cls, params: dict) -> "LineConnectsEndpoints":
+    def from_params(cls, params: dict) -> "LineConnectsEndpointsRule":
         return cls()
 
     def describe(self) -> str:
-        return "Each Start cell must connect to its matching End cell via a continuous line"
-
+        return "All endpoints of the same color must be connected by lines."

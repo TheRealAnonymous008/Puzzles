@@ -12,7 +12,6 @@ from typing import Any, ClassVar, Dict, Optional, Type
 
 class Symbol(ABC):
     symbol_type: ClassVar[str]
-    # Subclasses can override to restrict placement
     allowed_locations: ClassVar[list[str]] = ["cell", "vertex", "edge"]
 
     @abstractmethod
@@ -51,11 +50,11 @@ class NumberSymbol(Symbol):
 
 
 class EndpointSymbol(Symbol):
-    """Start/End terminal for line drawing. Only allowed on cells."""
+    """Start/End/Both terminal for line drawing. Allowed on cells and vertices."""
     symbol_type = "endpoint"
-    allowed_locations = ["cell"]
+    allowed_locations = ["cell", "vertex"]         # added vertex
 
-    ROLES = ("start", "end")
+    ROLES = ("start", "end", "both")
 
     def __init__(self, role: str, color_id: int) -> None:
         if role not in self.ROLES:
@@ -71,6 +70,8 @@ class EndpointSymbol(Symbol):
         return cls(role=data["role"], color_id=int(data["color_id"]))
 
     def display_label(self) -> str:
+        if self.role == "both":
+            return "B"
         return "S" if self.role == "start" else "E"
 
 

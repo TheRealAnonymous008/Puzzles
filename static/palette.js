@@ -67,6 +67,7 @@ export function buildEndpointPalette() {
 function updateEndpointRoleUI() {
   document.getElementById('ep-role-start')?.classList.toggle('active', appState.endpointRole === 'start');
   document.getElementById('ep-role-end')?.classList.toggle('active',   appState.endpointRole === 'end');
+  document.getElementById('ep-role-both')?.classList.toggle('active',  appState.endpointRole === 'both');
 }
 
 export function selectEndpointColor(colorId) {
