@@ -14,7 +14,7 @@ export const appState = {
   dragState: null,   // line drawing preview: { path: [[r,c],...], usedKeys: Set } or null
   // ── Editor ─────────────────────────────────────────────────
   mode: 'edit',          // 'edit' | 'play'
-  activeTool: 'draw-line', // 'add-cell' | 'remove-cell' | 'place-symbol' | 'erase-symbol' | 'draw-line' | 'erase-line'
+  activeTool: 'add-cell', // 'add-cell' | 'remove-cell' | 'place-symbol' | 'erase-symbol' | 'draw-line' | 'erase-line'
 
   // ── Palette ────────────────────────────────────────────────
   selectedValue: 1,       // Currently chosen palette number
@@ -24,6 +24,9 @@ export const appState = {
   // ── Endpoint placement (edit mode) ─────────────────────────
   endpointRole: 'start',  // 'start' | 'end'
   endpointColorId: 0,     // integer color index
+
+  // ── Placement target (new) ─────────────────────────────────
+  placementTarget: 'cell', // 'cell' | 'vertex' | 'edge'
 
   // ── Solver playback ────────────────────────────────────────
   solveResult: null,

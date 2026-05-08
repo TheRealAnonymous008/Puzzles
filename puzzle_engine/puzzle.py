@@ -7,7 +7,8 @@ Design notes:
   - The *player state* adds player_values and lines on top of editor state.
   - Lines are stored as a set of canonical Edge tuples – sorted (a,b) pairs –
     so membership is O(1) and (a,b) == (b,a).
-  - Serialization uses plain lists for JSON compatibility.
+  - Symbols can be placed on cells, vertices, and edges.
+    Serialization uses prefixed keys to distinguish them.
 """
 from __future__ import annotations
 from copy import deepcopy
@@ -19,39 +20,35 @@ from puzzle_engine.rule import Rule, RuleRegistry, Violation
 
 # Canonical undirected edge: (smaller_cell, larger_cell)
 Edge = Tuple[CellCoord, CellCoord]
+# Vertex coordinate – top‑left corner of a cell
+VertexCoord = Tuple[int, int]
+# Canonical edge between two adjacent vertices
+VertexEdge = Tuple[VertexCoord, VertexCoord]
 
 
 def _make_edge(a: CellCoord, b: CellCoord) -> Edge:
-    """Return a canonical (sorted) edge tuple so (a,b) == (b,a)."""
+    return (min(a, b), max(a, b))
+
+def _make_vertex_edge(a: VertexCoord, b: VertexCoord) -> VertexEdge:
     return (min(a, b), max(a, b))
 
 
 class PuzzleState:
-    """
-    Full puzzle state: grid + symbols + rules + player_values + lines.
-
-    Attributes
-    ----------
-    grid            Active cells.
-    symbols         Map of cell -> Symbol (editor-placed, immutable in play).
-    rules           Ordered list of active rules.
-    player_values   Map of cell -> value (set by player during play mode).
-    lines           Set of canonical Edge tuples drawn by the player.
-    metadata        Free-form dict (title, author, etc.).
-    """
-
     def __init__(self) -> None:
         self.grid: Grid = Grid()
-        self.symbols: Dict[CellCoord, Symbol] = {}
+        self.symbols: Dict[CellCoord, Symbol] = {}           # cell symbols (backward compat)
         self.rules: List[Rule] = []
         self.player_values: Dict[CellCoord, Any] = {}
         self.lines: Set[Edge] = set()
         self.metadata: Dict[str, Any] = {}
 
+        # new – symbols on vertices and edges
+        self.vertex_symbols: Dict[VertexCoord, Symbol] = {}
+        self.edge_symbols: Dict[VertexEdge, Symbol] = {}
+
     # ------------------------------------------------------------------
     # Grid editing
     # ------------------------------------------------------------------
-
     def add_cell(self, row: int, col: int) -> None:
         self.grid.add_cell(row, col)
 
@@ -64,9 +61,8 @@ class PuzzleState:
         self.lines = {e for e in self.lines if cell not in e}
 
     # ------------------------------------------------------------------
-    # Symbol management (editor)
+    # Symbol management (editor) – cell symbols
     # ------------------------------------------------------------------
-
     def place_symbol(self, row: int, col: int, symbol: Symbol) -> None:
         if not self.grid.has_cell(row, col):
             raise ValueError(f"Cell ({row}, {col}) is not active")
@@ -79,9 +75,43 @@ class PuzzleState:
         return self.symbols.get((row, col))
 
     # ------------------------------------------------------------------
+    # Vertex symbols
+    # ------------------------------------------------------------------
+    def place_vertex_symbol(self, row: int, col: int, symbol: Symbol) -> None:
+        """Place a symbol at the vertex (row, col)."""
+        if "vertex" not in symbol.allowed_locations:
+            raise ValueError(f"{symbol.symbol_type} cannot be placed on a vertex")
+        self.vertex_symbols[(row, col)] = symbol
+
+    def remove_vertex_symbol(self, row: int, col: int) -> None:
+        self.vertex_symbols.pop((row, col), None)
+
+    def get_vertex_symbol(self, row: int, col: int) -> Optional[Symbol]:
+        return self.vertex_symbols.get((row, col))
+
+    # ------------------------------------------------------------------
+    # Edge symbols
+    # ------------------------------------------------------------------
+    def place_edge_symbol(self, r1: int, c1: int, r2: int, c2: int, symbol: Symbol) -> None:
+        """Place a symbol on the edge between vertices (r1,c1) and (r2,c2)."""
+        if abs(r1 - r2) + abs(c1 - c2) != 1:
+            raise ValueError("Vertex edge must be between orthogonally adjacent vertices")
+        if "edge" not in symbol.allowed_locations:
+            raise ValueError(f"{symbol.symbol_type} cannot be placed on an edge")
+        edge = _make_vertex_edge((r1, c1), (r2, c2))
+        self.edge_symbols[edge] = symbol
+
+    def remove_edge_symbol(self, r1: int, c1: int, r2: int, c2: int) -> None:
+        edge = _make_vertex_edge((r1, c1), (r2, c2))
+        self.edge_symbols.pop(edge, None)
+
+    def get_edge_symbol(self, r1: int, c1: int, r2: int, c2: int) -> Optional[Symbol]:
+        edge = _make_vertex_edge((r1, c1), (r2, c2))
+        return self.edge_symbols.get(edge)
+
+    # ------------------------------------------------------------------
     # Rule management
     # ------------------------------------------------------------------
-
     def add_rule(self, rule: Rule) -> None:
         self.rules.append(rule)
 
@@ -92,7 +122,6 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Player values
     # ------------------------------------------------------------------
-
     def set_player_value(self, row: int, col: int, value: Any) -> None:
         if not self.grid.has_cell(row, col):
             raise ValueError(f"Cell ({row}, {col}) is not active")
@@ -107,20 +136,17 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Lines (player-drawn)
     # ------------------------------------------------------------------
-
     def add_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:
         """
-        Add an undirected line segment
+        Add an undirected line segment between two orthogonally adjacent cells.
+        No longer requires both cells to be active – boundary edges are allowed.
         """
         a, b = (r1, c1), (r2, c2)
         if abs(r1 - r2) + abs(c1 - c2) != 1:
-            raise ValueError(
-                f"Cells ({r1},{c1}) and ({r2},{c2}) are not orthogonally adjacent"
-            )
+            raise ValueError(f"Cells ({r1},{c1}) and ({r2},{c2}) are not orthogonally adjacent")
         self.lines.add(_make_edge(a, b))
 
     def remove_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:
-        """Remove the line segment between two cells (no-op if absent)."""
         self.lines.discard(_make_edge((r1, c1), (r2, c2)))
 
     def clear_all_lines(self) -> None:
@@ -130,7 +156,6 @@ class PuzzleState:
         return _make_edge((r1, c1), (r2, c2)) in self.lines
 
     def lines_at(self, row: int, col: int) -> List[CellCoord]:
-        """Return all cells connected to (row, col) by a line segment."""
         cell = (row, col)
         result = []
         for a, b in self.lines:
@@ -143,7 +168,6 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
-
     def check_rules(self) -> List[Violation]:
         violations = []
         for rule in self.rules:
@@ -156,9 +180,7 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Snapshot helpers
     # ------------------------------------------------------------------
-
     def snapshot_player_state(self) -> dict:
-        """Snapshot player_values + lines for play/edit toggling."""
         return {
             "player_values": deepcopy(self.player_values),
             "lines": deepcopy(self.lines),
@@ -171,20 +193,14 @@ class PuzzleState:
     def editor_snapshot(self) -> dict:
         return {
             "grid": self.grid.to_dict(),
-            "symbols": {
-                f"{r},{c}": SymbolRegistry.serialize(sym)
-                for (r, c), sym in self.symbols.items()
-            },
+            "symbols": self._serialize_symbols(),
             "rules": [rule.serialize() for rule in self.rules],
             "metadata": deepcopy(self.metadata),
         }
 
     def restore_editor_snapshot(self, data: dict) -> None:
         self.grid = Grid.from_dict(data["grid"])
-        self.symbols = {}
-        for key, sym_data in data.get("symbols", {}).items():
-            r, c = map(int, key.split(","))
-            self.symbols[(r, c)] = SymbolRegistry.deserialize(sym_data)
+        self._deserialize_symbols(data.get("symbols", {}))
         self.rules = [RuleRegistry.deserialize(rd) for rd in data.get("rules", [])]
         self.metadata = deepcopy(data.get("metadata", {}))
         self.player_values = {}
@@ -193,21 +209,59 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Full serialization
     # ------------------------------------------------------------------
-
     def _serialize_lines(self) -> list:
-        """Convert lines set to JSON-serializable list of [[r1,c1],[r2,c2]]."""
         return [[[a[0], a[1]], [b[0], b[1]]] for a, b in sorted(self.lines)]
 
     @staticmethod
     def _deserialize_lines(raw: list) -> Set[Edge]:
-        result: Set[Edge] = set()
+        result = set()
         for pair in raw:
             a, b = tuple(pair[0]), tuple(pair[1])
-            result.add(_make_edge(a, b))  # type: ignore
+            result.add(_make_edge(a, b))
         return result
 
+    def _serialize_symbols(self) -> dict:
+        """Unified symbol serialization with prefixed keys."""
+        result = {}
+        # cell symbols: key "c:{r},{c}"
+        for (r, c), sym in self.symbols.items():
+            result[f"c:{r},{c}"] = SymbolRegistry.serialize(sym)
+        # vertex symbols: key "v:{r},{c}"
+        for (r, c), sym in self.vertex_symbols.items():
+            result[f"v:{r},{c}"] = SymbolRegistry.serialize(sym)
+        # edge symbols: key "e:{r1},{c1}-{r2},{c2}" with sorted vertices
+        for (v1, v2), sym in self.edge_symbols.items():
+            r1, c1 = v1
+            r2, c2 = v2
+            result[f"e:{r1},{c1}-{r2},{c2}"] = SymbolRegistry.serialize(sym)
+        return result
+
+    def _deserialize_symbols(self, data: dict) -> None:
+        """Populate cell/vertex/edge symbols from a prefixed-key dict."""
+        self.symbols.clear()
+        self.vertex_symbols.clear()
+        self.edge_symbols.clear()
+        for key, sym_data in data.items():
+            sym = SymbolRegistry.deserialize(sym_data)
+            if key.startswith("c:"):
+                r, c = map(int, key[2:].split(","))
+                self.symbols[(r, c)] = sym
+            elif key.startswith("v:"):
+                r, c = map(int, key[2:].split(","))
+                self.vertex_symbols[(r, c)] = sym
+            elif key.startswith("e:"):
+                parts = key[2:].split("-")
+                v1 = tuple(map(int, parts[0].split(",")))
+                v2 = tuple(map(int, parts[1].split(",")))
+                edge = _make_vertex_edge(v1, v2)
+                self.edge_symbols[edge] = sym
+            else:
+                # backward compat – old "r,c" style treated as cell symbol
+                r, c = map(int, key.split(","))
+                self.symbols[(r, c)] = sym
+
     def to_dict(self) -> dict:
-        d = self.editor_snapshot()
+        d = self.editor_snapshot()          # now uses _serialize_symbols
         d["player_values"] = {
             f"{r},{c}": v for (r, c), v in self.player_values.items()
         }
@@ -217,7 +271,7 @@ class PuzzleState:
     @classmethod
     def from_dict(cls, data: dict) -> "PuzzleState":
         state = cls()
-        state.restore_editor_snapshot(data)
+        state.restore_editor_snapshot(data)  # handles symbols with prefixes
         for key, v in data.get("player_values", {}).items():
             r, c = map(int, key.split(","))
             state.player_values[(r, c)] = v

@@ -21,11 +21,23 @@ export const api = {
   addCell:    (row, col)   => _fetch('/api/grid/add_cell',    'POST', { row, col }),
   removeCell: (row, col)   => _fetch('/api/grid/remove_cell', 'POST', { row, col }),
 
-  // ── Symbols ────────────────────────────────────────────────
+  // ── Symbols (cells) ────────────────────────────────────────
   symbolsRegistry: ()      => _fetch('/api/symbols/registry'),
   placeSymbol: (row, col, symbol_type, params) =>
     _fetch('/api/symbol/place', 'POST', { row, col, symbol_type, ...params }),
   removeSymbol: (row, col) => _fetch('/api/symbol/remove', 'POST', { row, col }),
+
+  // ── Symbols on vertices ────────────────────────────────────
+  placeVertexSymbol: (row, col, symbol_type, params) =>
+    _fetch('/api/symbol/place_on_vertex', 'POST', { row, col, symbol_type, ...params }),
+  removeVertexSymbol: (row, col) =>
+    _fetch('/api/symbol/remove_on_vertex', 'POST', { row, col }),
+
+  // ── Symbols on edges ───────────────────────────────────────
+  placeEdgeSymbol: (from_row, from_col, to_row, to_col, symbol_type, params) =>
+    _fetch('/api/symbol/place_on_edge', 'POST', { from_row, from_col, to_row, to_col, symbol_type, ...params }),
+  removeEdgeSymbol: (from_row, from_col, to_row, to_col) =>
+    _fetch('/api/symbol/remove_on_edge', 'POST', { from_row, from_col, to_row, to_col }),
 
   // ── Rules ──────────────────────────────────────────────────
   rulesRegistry: ()                    => _fetch('/api/rules/registry'),

@@ -36,7 +36,10 @@ appState.subscribe(() => {
   document.getElementById('palette-heading').textContent = appState.mode === 'edit' ? 'Symbol' : 'Input Value';
   document.getElementById('endpoint-palette').parentElement.style.display = appState.mode === 'edit' ? '' : 'none';
   document.querySelector('.ep-role-row').style.display = appState.mode === 'edit' ? '' : 'none';
-
+  // placement target buttons active state
+  document.querySelectorAll('.target-btn').forEach(b => {
+    b.classList.toggle('active', b.id === `target-${appState.placementTarget}`);
+  });
   if (appState.activeTool !== 'draw-line' && appState.dragState) {
     appState.update({ dragState: null });
   }
@@ -58,25 +61,26 @@ async function load() {
   appState.update({ rulesSchema: schema });
   refresh(data);
   buildNumberPalette();
-  buildEndpointPalette()
+  buildEndpointPalette();
   buildRuleSelect();
   // sync mode buttons
   document.getElementById('btn-edit').classList.toggle('active', appState.mode === 'edit');
   document.getElementById('btn-play').classList.toggle('active', appState.mode === 'play');
 }
 
-// ── Cell click handler (attached via event delegation on SVG) ──────────
+// ── Cell click handler (modified for placement target) ──────────────────
 async function onCellClick(r, c) {
   const puzzle = appState.puzzle;
   const key = cellKey(r, c);
   const isActive = (puzzle?.grid?.cells || []).some(([cr, cc]) => cr === r && cc === c);
 
   if (appState.mode === 'edit') {
-    if (appState.activeTool === 'add-cell') {
-      if (!isActive) refresh(await api.addCell(r, c));
-    } else if (appState.activeTool === 'remove-cell') {
-      if (isActive) refresh(await api.removeCell(r, c));
-    } else if (appState.activeTool === 'place-symbol') {
+    if (appState.eraseMode) {
+      // erase any symbol on the cell if it exists
+      if (isActive && puzzle.symbols?.[`c:${key}`]) {
+        refresh(await api.removeSymbol(r, c));
+      }
+    } else if (appState.activeTool === 'place-symbol' && appState.placementTarget === 'cell') {
       if (isActive) {
         if (appState.paletteType === 'endpoint') {
           refresh(await api.placeSymbol(r, c, 'endpoint', {
@@ -87,12 +91,14 @@ async function onCellClick(r, c) {
           refresh(await api.placeSymbol(r, c, 'number', { value: appState.selectedValue }));
         }
       }
-    } else if (appState.activeTool === 'erase-symbol') {
-      if (isActive) refresh(await api.removeSymbol(r, c));
+    } else if (appState.activeTool === 'add-cell') {
+      if (!isActive) refresh(await api.addCell(r, c));
+    } else if (appState.activeTool === 'remove-cell') {
+      if (isActive) refresh(await api.removeCell(r, c));
     }
   } else { // play mode
     if (!isActive) return;
-    const isFixed = puzzle.symbols?.[key] !== undefined;
+    const isFixed = puzzle.symbols?.[`c:${key}`] !== undefined;
     if (isFixed) return;
 
     if (appState.eraseMode) {
@@ -112,7 +118,7 @@ async function onCellClick(r, c) {
 // ── Inspector display ──────────────────────────────────────────────────
 function showInspector(r, c) {
   const key = cellKey(r, c);
-  const sym = appState.puzzle?.symbols?.[key];
+  const sym = appState.puzzle?.symbols?.[`c:${key}`];  // use prefixed key
   const pv  = appState.puzzle?.player_values?.[key];
   document.getElementById('inspector').innerHTML = `
     <div style="font-family:'DM Mono',monospace;margin-bottom:4px;color:var(--accent2)">Cell (${r}, ${c})</div>
@@ -123,7 +129,7 @@ function showInspector(r, c) {
 
 // ── Mode switching ─────────────────────────────────────────────────────
 function setMode(m) {
-  appState.update({ mode: m, activeTool: 'draw-line' });
+  appState.update({ mode: m, activeTool: m === 'edit' ? 'draw-line' : 'place-symbol', placementTarget: 'cell' });
   playbackReset();
 }
 
@@ -133,7 +139,7 @@ function setTool(t) {
   if (t === 'erase-symbol') {
     appState.update({ eraseMode: true });
   } else if (t === 'place-symbol') {
-    appState.update({ eraseMode: false });
+    // do not turn off eraseMode here; palette selection will handle it
   }
 }
 
@@ -161,6 +167,28 @@ document.getElementById('endpoint-palette').addEventListener('click', (e) => {
 
 document.getElementById('ep-role-start').addEventListener('click', () => selectEndpointRole('start'));
 document.getElementById('ep-role-end').addEventListener('click', () => selectEndpointRole('end'));
+
+// ── Placement target buttons ────────────────────────────────────────
+document.getElementById('target-cell').addEventListener('click', () => {
+  appState.update({ placementTarget: 'cell' });
+  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
+    setTool('place-symbol');
+  }
+});
+
+document.getElementById('target-vertex').addEventListener('click', () => {
+  appState.update({ placementTarget: 'vertex' });
+  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
+    setTool('place-symbol');
+  }
+});
+
+document.getElementById('target-edge').addEventListener('click', () => {
+  appState.update({ placementTarget: 'edge' });
+  if (appState.activeTool !== 'draw-line' && appState.activeTool !== 'erase-line') {
+    setTool('place-symbol');
+  }
+});
 
 // ── Tool buttons ───────────────────────────────────────────────────────
 document.getElementById('tool-add-cell').addEventListener('click', () => setTool('add-cell'));
@@ -237,8 +265,8 @@ document.getElementById('validate-btn').addEventListener('click', async () => {
   if (result.is_solved) alert('🎉 Puzzle solved! All rules satisfied.');
 });
 
-// ── SVG interaction (click for cells & lines) ──────────────────────────
-document.getElementById('grid-svg').addEventListener('click', (e) => {
+// ── SVG interaction (click for cells, vertices, edges, lines) ──────────
+document.getElementById('grid-svg').addEventListener('click', async (e) => {
   // If we clicked a line element while in erase-line mode, handle that first
   const line = e.target.closest('line[data-line-from-row]');
   if (line && appState.mode === 'edit' && appState.activeTool === 'erase-line') {
@@ -252,6 +280,48 @@ document.getElementById('grid-svg').addEventListener('click', (e) => {
         .then(refresh);
       return;
     }
+  }
+
+  // Vertex click
+  const vertexEl = e.target.closest('[data-vertex-row]');
+  if (vertexEl && appState.mode === 'edit') {
+    const vr = parseInt(vertexEl.dataset.vertexRow);
+    const vc = parseInt(vertexEl.dataset.vertexCol);
+    if (appState.eraseMode) {
+      refresh(await api.removeVertexSymbol(vr, vc));
+    } else if (appState.activeTool === 'place-symbol' && appState.placementTarget === 'vertex') {
+      if (appState.paletteType === 'endpoint') {
+        refresh(await api.placeVertexSymbol(vr, vc, 'endpoint', {
+          role: appState.endpointRole,
+          color_id: appState.endpointColorId
+        }));
+      } else {
+        refresh(await api.placeVertexSymbol(vr, vc, 'number', { value: appState.selectedValue }));
+      }
+    }
+    return;
+  }
+
+  // Edge click
+  const edgeEl = e.target.closest('[data-edge-from-row]');
+  if (edgeEl && appState.mode === 'edit') {
+    const fr = parseInt(edgeEl.dataset.edgeFromRow);
+    const fc = parseInt(edgeEl.dataset.edgeFromCol);
+    const tr = parseInt(edgeEl.dataset.edgeToRow);
+    const tc = parseInt(edgeEl.dataset.edgeToCol);
+    if (appState.eraseMode) {
+      refresh(await api.removeEdgeSymbol(fr, fc, tr, tc));
+    } else if (appState.activeTool === 'place-symbol' && appState.placementTarget === 'edge') {
+      if (appState.paletteType === 'endpoint') {
+        refresh(await api.placeEdgeSymbol(fr, fc, tr, tc, 'endpoint', {
+          role: appState.endpointRole,
+          color_id: appState.endpointColorId
+        }));
+      } else {
+        refresh(await api.placeEdgeSymbol(fr, fc, tr, tc, 'number', { value: appState.selectedValue }));
+      }
+    }
+    return;
   }
 
   // Cell click: try to get row/col from data-* attributes on a rect
@@ -295,10 +365,10 @@ document.getElementById('grid-svg').addEventListener('contextmenu', async (e) =>
   const isActive = (appState.puzzle?.grid?.cells || []).some(
     ([cr, cc]) => cr === r && cc === c
   );
-  if (!isActive || !appState.puzzle?.symbols?.[key]) return; // nothing to erase
-
-  const updated = await api.removeSymbol(r, c);
-  refresh(updated);
+  const symKey = `c:${key}`;
+  if (isActive && appState.puzzle?.symbols?.[symKey]) {
+    refresh(await api.removeSymbol(r, c));
+  }
 });
 
 // Hover inspector via mousemove
@@ -312,17 +382,13 @@ document.getElementById('grid-svg').addEventListener('mousemove', (e) => {
       return;
     }
   }
-  // If not over a rect, we could clear inspector or ignore
-});
-
-// Optional hover for inspector
-document.getElementById('grid-svg').addEventListener('mousemove', (e) => {
+  // Fallback coordinate lookup for hover
   const [x, y] = eventToSvgPos(e);
   const cell = svgPosToCell(x, y);
   if (cell && appState.puzzle) {
-    const key = cellKey(cell[0], cell[1]);
-    const isActive = (appState.puzzle.grid?.cells || []).some(([r, c]) => r === cell[0] && c === cell[1]);
-    if (isActive) showInspector(cell[0], cell[1]);
+    const [r, c] = cell;
+    const isActive = (appState.puzzle.grid?.cells || []).some(([cr, cc]) => cr === r && cc === c);
+    if (isActive) showInspector(r, c);
   }
 });
 

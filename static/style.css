@@ -516,3 +516,29 @@ input[type=range] { width: 100%; margin-top: 6px; accent-color: var(--accent); }
 .inspector-row { font-size: 12px; margin-bottom: 3px; }
 .inspector-row .lbl { color: var(--muted); }
 .inspector-row .val { font-family: 'DM Mono', monospace; }
+
+
+/* Placement target buttons */
+.placement-target {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.target-btn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: all .12s;
+  text-align: center;
+}
+.target-btn.active {
+  border-color: var(--accent);
+  background: rgba(124,106,247,.15);
+  color: var(--accent);
+}
