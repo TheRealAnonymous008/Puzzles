@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from puzzle_engine.grid import Grid, CellCoord
 from puzzle_engine.symbol import Symbol, SymbolRegistry
 from puzzle_engine.rule import Rule, RuleRegistry, Violation
+from rules.line_structure import BuiltinLineStructureRule
 
 # Canonical undirected edge: (smaller_cell, larger_cell)
 Edge = Tuple[CellCoord, CellCoord]
@@ -34,7 +35,10 @@ def _make_vertex_edge(a: VertexCoord, b: VertexCoord) -> VertexEdge:
 
 
 class PuzzleState:
+    BUILT_IN_RULES = [BuiltinLineStructureRule()]
+
     def __init__(self) -> None:
+
         self.grid: Grid = Grid()
         self.symbols: Dict[CellCoord, Symbol] = {}           # cell symbols (backward compat)
         self.rules: List[Rule] = []
@@ -168,9 +172,12 @@ class PuzzleState:
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
+
     def check_rules(self) -> List[Violation]:
         violations = []
         for rule in self.rules:
+            violations.extend(rule.check(self))
+        for rule in self.BUILT_IN_RULES:
             violations.extend(rule.check(self))
         return violations
 
