@@ -127,6 +127,23 @@ function showInspector(r, c) {
   `;
 }
 
+function showVertexInspector(vr, vc) {
+  const sym = appState.puzzle?.symbols?.[`v:${vr},${vc}`];   // prefixed key
+  document.getElementById('inspector').innerHTML = `
+    <div style="font-family:'DM Mono',monospace;margin-bottom:4px;color:var(--accent2)">Vert (${vr}, ${vc})</div>
+    <div class="inspector-row"><span class="lbl">Symbol:</span> <span class="val" style="color:var(--accent)">${sym ? `${sym.symbol_type} = ${sym.display_label ? sym.display_label() : sym.value ?? ''}` : '—'}</span></div>
+  `;
+}
+
+function showEdgeInspector(fr, fc, tr, tc) {
+  const key = `e:${fr},${fc}-${tr},${tc}`;
+  const sym = appState.puzzle?.symbols?.[key];
+  document.getElementById('inspector').innerHTML = `
+    <div style="font-family:'DM Mono',monospace;margin-bottom:4px;color:var(--accent2)">Edge: (${fr},${fc}) ↔ (${tr},${tc})</div>
+    <div class="inspector-row"><span class="lbl">Symbol:</span> <span class="val" style="color:var(--accent)">${sym ? `${sym.symbol_type} = ${sym.display_label ? sym.display_label() : sym.value ?? ''}` : '—'}</span></div>
+  `;
+}
+
 // ── Mode switching ─────────────────────────────────────────────────────
 function setMode(m) {
   appState.update({ mode: m, activeTool: m === 'edit' ? 'draw-line' : 'place-symbol', placementTarget: 'cell' });
@@ -380,6 +397,31 @@ document.getElementById('grid-svg').addEventListener('contextmenu', async (e) =>
 
 // Hover inspector via mousemove
 document.getElementById('grid-svg').addEventListener('mousemove', (e) => {
+  // 1. vertex hover
+  const vertexEl = e.target.closest('circle[data-vertex-row]');
+  if (vertexEl) {
+    const vr = parseInt(vertexEl.dataset.vertexRow);
+    const vc = parseInt(vertexEl.dataset.vertexCol);
+    if (!isNaN(vr) && !isNaN(vc)) {
+      showVertexInspector(vr, vc);
+      return;
+    }
+  }
+
+  // 2. edge hover
+  const edgeEl = e.target.closest('line[data-edge-from-row]');
+  if (edgeEl) {
+    const fr = parseInt(edgeEl.dataset.edgeFromRow);
+    const fc = parseInt(edgeEl.dataset.edgeFromCol);
+    const tr = parseInt(edgeEl.dataset.edgeToRow);
+    const tc = parseInt(edgeEl.dataset.edgeToCol);
+    if (!isNaN(fr) && !isNaN(tr)) {
+      showEdgeInspector(fr, fc, tr, tc);
+      return;
+    }
+  }
+
+  // 3. cell hover (existing)
   const rect = e.target.closest('rect[data-row]');
   if (rect) {
     const r = parseInt(rect.dataset.row);
@@ -389,7 +431,8 @@ document.getElementById('grid-svg').addEventListener('mousemove', (e) => {
       return;
     }
   }
-  // Fallback coordinate lookup for hover
+
+  // Fallback: coordinate lookup for cell hover as before...
   const [x, y] = eventToSvgPos(e);
   const cell = svgPosToCell(x, y);
   if (cell && appState.puzzle) {

@@ -33,7 +33,6 @@ def _make_edge(a: CellCoord, b: CellCoord) -> Edge:
 def _make_vertex_edge(a: VertexCoord, b: VertexCoord) -> VertexEdge:
     return (min(a, b), max(a, b))
 
-
 class PuzzleState:
     BUILT_IN_RULES = [BuiltinLineStructureRule()]
 
@@ -43,7 +42,7 @@ class PuzzleState:
         self.symbols: Dict[CellCoord, Symbol] = {}           # cell symbols (backward compat)
         self.rules: List[Rule] = []
         self.player_values: Dict[CellCoord, Any] = {}
-        self.lines: Set[Edge] = set()
+        self.lines: Set[VertexEdge] = set()
         self.metadata: Dict[str, Any] = {}
 
         # new – symbols on vertices and edges
@@ -141,33 +140,64 @@ class PuzzleState:
     # Lines (player-drawn)
     # ------------------------------------------------------------------
     def add_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:
-        """
-        Add an undirected line segment between two orthogonally adjacent cells.
-        No longer requires both cells to be active – boundary edges are allowed.
-        """
+        """Add line as cell pair – stored as vertex edge separating them."""
         a, b = (r1, c1), (r2, c2)
         if abs(r1 - r2) + abs(c1 - c2) != 1:
-            raise ValueError(f"Cells ({r1},{c1}) and ({r2},{c2}) are not orthogonally adjacent")
-        self.lines.add(_make_edge(a, b))
+            raise ValueError("Cells must be orthogonally adjacent")
+        # Convert to shared vertex edge
+        if r1 == r2:                 # horizontal adjacency → vertical vertex edge
+            row = r1
+            col_right = max(c1, c2)
+            v1, v2 = (row, col_right), (row + 1, col_right)
+        else:                        # vertical adjacency → horizontal vertex edge
+            col = c1
+            row_bottom = max(r1, r2)
+            v1, v2 = (row_bottom, col), (row_bottom, col + 1)
+        self.lines.add(_make_vertex_edge(v1, v2))
 
     def remove_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> None:
-        self.lines.discard(_make_edge((r1, c1), (r2, c2)))
+        if r1 == r2:
+            row = r1
+            col_right = max(c1, c2)
+            v1, v2 = (row, col_right), (row + 1, col_right)
+        else:
+            col = c1
+            row_bottom = max(r1, r2)
+            v1, v2 = (row_bottom, col), (row_bottom, col + 1)
+        self.lines.discard(_make_vertex_edge(v1, v2))
+
+    def has_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> bool:
+        if r1 == r2:
+            row = r1; col_right = max(c1, c2)
+            v1, v2 = (row, col_right), (row + 1, col_right)
+        else:
+            col = c1; row_bottom = max(r1, r2)
+            v1, v2 = (row_bottom, col), (row_bottom, col + 1)
+        return _make_vertex_edge(v1, v2) in self.lines
+
+    def lines_at(self, row: int, col: int) -> List[CellCoord]:
+        """Return neighbouring cells connected by a line from (row,col) – still cell‑based."""
+        result = []
+        for (vr, vc) in [(row, col), (row, col+1), (row+1, col), (row+1, col+1)]:
+            for dr, dc in [(0,1),(1,0)]:
+                nr, nc = vr+dr, vc+dc
+                edge = _make_vertex_edge((vr, vc), (nr, nc))
+                if edge in self.lines:
+                    # Convert back to cell neighbour
+                    if dr == 0:   # horizontal vertex edge -> cells: (vr-1, vc) and (vr, vc)
+                        cell1 = (vr-1, vc)
+                        cell2 = (vr, vc)
+                    else:         # vertical vertex edge -> cells: (vr, vc-1) and (vr, vc)
+                        cell1 = (vr, vc-1)
+                        cell2 = (vr, vc)
+                    if cell1 == (row, col):
+                        result.append(cell2)
+                    elif cell2 == (row, col):
+                        result.append(cell1)
+        return result
 
     def clear_all_lines(self) -> None:
         self.lines.clear()
-
-    def has_line_segment(self, r1: int, c1: int, r2: int, c2: int) -> bool:
-        return _make_edge((r1, c1), (r2, c2)) in self.lines
-
-    def lines_at(self, row: int, col: int) -> List[CellCoord]:
-        cell = (row, col)
-        result = []
-        for a, b in self.lines:
-            if a == cell:
-                result.append(b)
-            elif b == cell:
-                result.append(a)
-        return result
 
     # ------------------------------------------------------------------
     # Validation
@@ -217,14 +247,15 @@ class PuzzleState:
     # Full serialization
     # ------------------------------------------------------------------
     def _serialize_lines(self) -> list:
-        return [[[a[0], a[1]], [b[0], b[1]]] for a, b in sorted(self.lines)]
+        return [[[v1[0], v1[1]], [v2[0], v2[1]]] for v1, v2 in sorted(self.lines)]
 
     @staticmethod
-    def _deserialize_lines(raw: list) -> Set[Edge]:
+    def _deserialize_lines(raw: list) -> Set[VertexEdge]:
         result = set()
         for pair in raw:
-            a, b = tuple(pair[0]), tuple(pair[1])
-            result.add(_make_edge(a, b))
+            v1 = tuple(pair[0])
+            v2 = tuple(pair[1])
+            result.add(_make_vertex_edge(v1, v2))
         return result
 
     def _serialize_symbols(self) -> dict:
@@ -267,12 +298,25 @@ class PuzzleState:
                 r, c = map(int, key.split(","))
                 self.symbols[(r, c)] = sym
 
+    def _vertex_edge_to_cell_edge(self, v1: VertexCoord, v2: VertexCoord) -> Edge:
+        r1, c1 = v1; r2, c2 = v2
+        if r1 == r2:          # horizontal edge
+            row = r1
+            col = min(c1, c2)
+            cell1, cell2 = (row-1, col), (row, col)
+        else:                 # vertical edge
+            col = c1
+            row = min(r1, r2)
+            cell1, cell2 = (row, col-1), (row, col)
+        return tuple(sorted((cell1, cell2)))
+
     def to_dict(self) -> dict:
         d = self.editor_snapshot()          # now uses _serialize_symbols
         d["player_values"] = {
             f"{r},{c}": v for (r, c), v in self.player_values.items()
         }
-        d["lines"] = self._serialize_lines()
+        d["lines"] = [[[a[0], a[1]], [b[0], b[1]]] for v1, v2 in sorted(self.lines)
+              for a, b in [self._vertex_edge_to_cell_edge(v1, v2)]]
         return d
 
     @classmethod

@@ -60,17 +60,11 @@ def cell_edge_to_vertices(edge: Edge) -> List[VertexCoord]:
 # ---------------------------------------------------------------------------
 
 def build_vertex_line_graph(state: "PuzzleState") -> Dict[VertexCoord, List[VertexCoord]]:
-    """
-    Build a graph of vertices connected by drawn cell edges.
-    Each vertex maps to a list of adjacent vertices reachable via one line edge.
-    """
     graph = defaultdict(list)
-    for edge in state.lines:
-        v1, v2 = cell_edge_to_vertices(edge)
+    for v1, v2 in state.lines:          # now vertex edges
         graph[v1].append(v2)
         graph[v2].append(v1)
     return graph
-
 
 # ---------------------------------------------------------------------------
 # Endpoint collection (cells + vertices, grouped by color_id and role)

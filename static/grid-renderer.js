@@ -263,7 +263,8 @@ function renderVertices(gMinR, gMinC, vertices, symbols) {
                        data-vertex-row="${vr}" data-vertex-col="${vc}"/>`;
       // Visible symbol badge (small)
       html += `<circle cx="${x}" cy="${y}" r="${VERTEX_RADIUS + 2}" fill="#1e1e2e"
-                       stroke="#2e2e38" stroke-width="1.5" pointer-events="none"/>`;
+                      stroke="#2e2e38" stroke-width="1.5" pointer-events="auto"
+                      data-vertex-row="${vr}" data-vertex-col="${vc}"/>`;
       const label = sym.display_label ? sym.display_label() : '';
       html += `<text x="${x}" y="${y + 5}" text-anchor="middle" fill="#a78bfa"
                      font-size="12" font-family="DM Mono" font-weight="600"

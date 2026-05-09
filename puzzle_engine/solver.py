@@ -1,31 +1,25 @@
 """
-Solver module: path‑based backtracking line solver for PuzzleState.
-Works on the vertex graph, handles boundary edges, and respects
-degree & connectivity constraints automatically.
+Solver: pure vertex‑graph backtracking.
+No cells are used – only vertices and edges between them.
 """
 from __future__ import annotations
 from collections import defaultdict
-from copy import deepcopy
 from dataclasses import dataclass, field
-from itertools import product
+from itertools import permutations
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from puzzle_engine.grid import CellCoord
-from puzzle_engine.puzzle import PuzzleState
+from puzzle_engine.puzzle import PuzzleState, VertexCoord, VertexEdge
 from puzzle_engine.symbol import EndpointSymbol
-
-Vertex = Tuple[int, int]
-Edge = Tuple[CellCoord, CellCoord]          # cell‑pair edge
-VertexEdge = Tuple[Vertex, Vertex]          # internal vertex‑pair edge
 
 
 @dataclass
 class SolveResult:
     solution_count: int = 0
-    first_solution: Optional[Dict[CellCoord, Any]] = None
+    first_solution: Optional[Dict[CellCoord, Any]] = None   # not used for lines
     solve_path: List[Tuple[CellCoord, Any]] = field(default_factory=list)
     searched_nodes: int = 0
-    first_lines: Optional[Set[Edge]] = None
+    first_lines: Optional[Set[VertexEdge]] = None               # vertex edges
 
     @property
     def is_unique(self) -> bool:
@@ -36,28 +30,45 @@ class SolveResult:
         return self.solution_count > 0
 
     def to_dict(self) -> dict:
+        """Return a representation suitable for the front‑end.
+        The front‑end expects cell‑pair edges, so we convert vertex edges here."""
         d = {
             "solution_count": self.solution_count,
             "has_solution": self.has_solution,
             "is_unique": self.is_unique,
             "searched_nodes": self.searched_nodes,
-            "first_solution": (
-                {f"{r},{c}": v for (r, c), v in self.first_solution.items()}
-                if self.first_solution else None
-            ),
-            "solve_path": [],       # not used for line solving
+            "first_solution": None,
+            "solve_path": [],
         }
         if self.first_lines is not None:
+            cell_lines = []
+            for v1, v2 in self.first_lines:
+                cell1, cell2 = self._vertex_edge_to_cell_pair(v1, v2)
+                cell_lines.append(((cell1[0], cell1[1]), (cell2[0], cell2[1])))
             d["lines"] = [
-                [[a[0], a[1]], [b[0], b[1]]] for a, b in sorted(self.first_lines)
+                [[a[0], a[1]], [b[0], b[1]]] for a, b in sorted(cell_lines)
             ]
         else:
             d["lines"] = []
         return d
 
+    @staticmethod
+    def _vertex_edge_to_cell_pair(v1: VertexCoord, v2: VertexCoord):
+        r1, c1 = v1
+        r2, c2 = v2
+        if r1 == r2:          # horizontal vertex edge → cells above/below
+            row = r1
+            col = min(c1, c2)
+            return (row - 1, col), (row, col)
+        else:                 # vertical vertex edge → cells left/right
+            col = c1
+            row = min(r1, r2)
+            return (row, col - 1), (row, col)
+
 
 class Solver:
-    """Backtracking line solver that places lines on the vertex graph."""
+    """Backtracking solver that places lines on the vertex graph,
+    connects endpoints, and runs built‑in rule validation."""
 
     def __init__(self, max_solutions: int = 2) -> None:
         self.max_solutions = max_solutions
@@ -68,297 +79,261 @@ class Solver:
     def solve(self, state: PuzzleState) -> SolveResult:
         result = SolveResult()
 
-        # 1. Build vertex graph and all possible edges
-        vgraph, vertex_edges_list = self._build_vertex_graph(state)
-        # 2. Extract endpoints per colour, expand cell endpoints to concrete vertices
-        color_terminals = self._extract_terminals(state)
-        if not color_terminals:
+        # 1. Build the vertex graph (corners of all active cells + endpoint vertices)
+        vgraph = self._build_vertex_graph(state)
+
+        # 2. Extract all endpoint symbols as vertex locations
+        color_endpoints = self._extract_endpoints(state)
+        if not color_endpoints:
             result.searched_nodes = 1
             if state.is_solved():
                 result.solution_count = 1
-                result.first_solution = dict(state.player_values)
                 result.first_lines = set(state.lines)
             return result
 
-        # 3. For each colour, list all possible assignments of corner choices
-        #    for cell endpoints, yielding (starts, ends, self_loops) as concrete vertices.
+        # 3. For each colour, generate all possible concrete vertex sets
         assignments_per_color = []
-        for color, terminals in color_terminals.items():
-            assignments = list(self._generate_assignments(terminals))
+        for color, eps in color_endpoints.items():
+            assignments = list(self._generate_assignments(eps))
             if not assignments:
-                # No possible way to assign corners – unsolvable
                 return result
             assignments_per_color.append((color, assignments))
 
-        # 4. Iterate over all combinations of assignments across colours
-        colors_assignments = [assignments_per_color]  # list of (color, [assignments])
-        # We'll do a product over the assignment lists.
-        for combo in product(*[a for _, a in assignments_per_color]):
-            # Build a fresh state of used vertices / edges
+        # 4. Try every combination of assignments across colours
+        for combo in self._product_assignments(assignments_per_color):
             used_edges: Set[VertexEdge] = set()
-            vertex_degrees: Dict[Vertex, int] = defaultdict(int)
-            # Track colour of each interior vertex (to prevent mixing)
-            vertex_colour: Dict[Vertex, int] = {}
+            degrees: Dict[VertexCoord, int] = defaultdict(int)
+            colours: Dict[VertexCoord, int] = {}
 
-            # For each colour in this combo
-            success = True
+            ok = True
             for (color, _), (starts, ends, self_loops) in zip(assignments_per_color, combo):
-                # For this colour, we need to connect starts to ends and handle self_loops.
-                # We'll pair up starts and ends and try to find disjoint paths.
                 if not self._solve_color(vgraph, starts, ends, self_loops,
-                                         used_edges, vertex_degrees, vertex_colour, color):
-                    success = False
+                                         used_edges, degrees, colours, color):
+                    ok = False
                     break
-            if not success:
+            if not ok:
                 continue
 
-            # All colours satisfied – check the combined set against rules
-            cell_edges = self._vertex_edges_to_cell_edges(used_edges, state)
-            if self._is_valid(state, cell_edges):
+            result.searched_nodes += 1
+            # Directly assign the found vertex edges to the state
+            old_lines = state.lines
+            state.lines = used_edges
+            valid = state.is_solved()
+            state.lines = old_lines
+
+            if valid:
                 result.solution_count += 1
                 if result.first_lines is None:
-                    result.first_lines = cell_edges
-                    result.first_solution = dict(state.player_values)
+                    result.first_lines = set(used_edges)
                 if result.solution_count >= self.max_solutions:
-                    return result
+                    break
 
         return result
 
     # ------------------------------------------------------------------
-    # Vertex graph (all edges touching an active cell)
+    # Vertex graph – all corners of active cells + endpoint vertices
     # ------------------------------------------------------------------
     def _build_vertex_graph(self, state: PuzzleState):
-        cells = set(state.grid.cells)
-        # All vertices that belong to at least one active cell
-        vertices = set()
-        for (r, c) in cells:
-            for (vr, vc) in [(r, c), (r, c+1), (r+1, c), (r+1, c+1)]:
-                vertices.add((vr, vc))
+        active_cells = set(state.grid.cells)
+        vertices: Set[VertexCoord] = set()
+        for r, c in active_cells:
+            vertices.update([(r, c), (r, c+1), (r+1, c), (r+1, c+1)])
 
-        # Adjacency: two adjacent vertices connected by an edge that borders
-        # at least one active cell.
+        # Also include every vertex that has an endpoint symbol
+        for v in state.vertex_symbols:
+            vertices.add(v)
+
         graph = defaultdict(set)
-        active = set(cells)
-        for (vr, vc) in vertices:
-            for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+        for vr, vc in vertices:
+            for dr, dc in ((0, 1), (1, 0)):
                 nr, nc = vr + dr, vc + dc
                 if (nr, nc) not in vertices:
                     continue
-                # determine the two cells on either side of this vertex edge
+                # Edge exists if at least one of the two adjacent cells is active
                 if dr == 0:          # horizontal edge
                     r = vr
                     c = min(vc, nc)
                     cell1 = (r-1, c)
                     cell2 = (r, c)
                 else:                # vertical edge
-                    r = min(vr, nr)
                     c = vc
+                    r = min(vr, nr)
                     cell1 = (r, c-1)
                     cell2 = (r, c)
-                if cell1 in active or cell2 in active:
+                if cell1 in active_cells or cell2 in active_cells:
                     graph[(vr, vc)].add((nr, nc))
                     graph[(nr, nc)].add((vr, vc))
 
-        # List of all unique vertex edges (canonical order)
-        edges = set()
-        for v, nbs in graph.items():
-            for nb in nbs:
-                edges.add(tuple(sorted([v, nb])))
-        return graph, list(edges)
+        return graph
 
     # ------------------------------------------------------------------
-    # Terminal extraction & assignment generation
+    # Endpoint collection – map colour -> {starts, ends, boths}
     # ------------------------------------------------------------------
-    def _extract_terminals(self, state: PuzzleState):
-        """Return dict: color -> {
-            'cell_starts': [(r,c),...],
-            'cell_ends':   [(r,c),...],
-            'cell_boths':  [(r,c),...],
-            'vertex_starts': [(vr,vc),...],
-            'vertex_ends':   [(vr,vc),...],
-            'vertex_boths':  [(vr,vc),...],
-        }"""
-        result = defaultdict(lambda: {
-            'cell_starts': [], 'cell_ends': [], 'cell_boths': [],
-            'vertex_starts': [], 'vertex_ends': [], 'vertex_boths': []
-        })
+    def _extract_endpoints(self, state: PuzzleState):
+        result = defaultdict(lambda: {"starts": [], "ends": [], "boths": []})
+        # cell endpoints → expand later to corners
         for (r, c), sym in state.symbols.items():
             if isinstance(sym, EndpointSymbol):
                 color = sym.color_id
-                if sym.role == 'start':
-                    result[color]['cell_starts'].append((r, c))
-                elif sym.role == 'end':
-                    result[color]['cell_ends'].append((r, c))
-                elif sym.role == 'both':
-                    result[color]['cell_boths'].append((r, c))
-        for (vr, vc), sym in state.vertex_symbols.items():
+                role = sym.role
+                if role == "start":
+                    result[color]["starts"].append(("cell", (r, c)))
+                elif role == "end":
+                    result[color]["ends"].append(("cell", (r, c)))
+                else:
+                    result[color]["boths"].append(("cell", (r, c)))
+        # vertex endpoints → already concrete
+        for v, sym in state.vertex_symbols.items():
             if isinstance(sym, EndpointSymbol):
                 color = sym.color_id
-                if sym.role == 'start':
-                    result[color]['vertex_starts'].append((vr, vc))
-                elif sym.role == 'end':
-                    result[color]['vertex_ends'].append((vr, vc))
-                elif sym.role == 'both':
-                    result[color]['vertex_boths'].append((vr, vc))
+                role = sym.role
+                if role == "start":
+                    result[color]["starts"].append(("vertex", v))
+                elif role == "end":
+                    result[color]["ends"].append(("vertex", v))
+                else:
+                    result[color]["boths"].append(("vertex", v))
         return result
 
-    def _generate_assignments(self, terminals: dict):
-        """Yield all valid (starts, ends, self_loops) for a given colour,
-        where cell endpoints are expanded to concrete corners."""
-        cell_starts = terminals['cell_starts']
-        cell_ends = terminals['cell_ends']
-        cell_boths = terminals['cell_boths']
-        vertex_starts = terminals['vertex_starts']
-        vertex_ends = terminals['vertex_ends']
-        vertex_boths = terminals['vertex_boths']
+    # ------------------------------------------------------------------
+    # Assignment generation – cell endpoints become concrete corners
+    # ------------------------------------------------------------------
+    def _generate_assignments(self, endpoints: dict):
+        cell_starts = [loc for typ, loc in endpoints["starts"] if typ == "cell"]
+        cell_ends   = [loc for typ, loc in endpoints["ends"]   if typ == "cell"]
+        cell_boths  = [loc for typ, loc in endpoints["boths"]  if typ == "cell"]
+        vertex_starts = [loc for typ, loc in endpoints["starts"] if typ == "vertex"]
+        vertex_ends   = [loc for typ, loc in endpoints["ends"]   if typ == "vertex"]
+        vertex_boths  = [loc for typ, loc in endpoints["boths"]  if typ == "vertex"]
 
-        # Helper: return the 4 corners of a cell
         def corners(r, c):
             return [(r, c), (r, c+1), (r+1, c), (r+1, c+1)]
 
-        # Generate all choices for start cells (pick one corner each)
-        def choices_starts():
+        # All choices for cell starts
+        def cell_start_choices():
             if not cell_starts:
                 yield []
-            else:
-                # recursive product
-                def gen(idx, cur):
-                    if idx == len(cell_starts):
-                        yield list(cur)
-                        return
-                    r, c = cell_starts[idx]
-                    for v in corners(r, c):
-                        cur.append(v)
-                        yield from gen(idx+1, cur)
-                        cur.pop()
-                yield from gen(0, [])
+                return
+            def gen(idx, cur):
+                if idx == len(cell_starts):
+                    yield list(cur)
+                    return
+                r, c = cell_starts[idx]
+                for v in corners(r, c):
+                    cur.append(v)
+                    yield from gen(idx+1, cur)
+                    cur.pop()
+            yield from gen(0, [])
 
-        def choices_ends():
+        def cell_end_choices():
             if not cell_ends:
                 yield []
-            else:
-                def gen(idx, cur):
-                    if idx == len(cell_ends):
-                        yield list(cur)
-                        return
-                    r, c = cell_ends[idx]
-                    for v in corners(r, c):
-                        cur.append(v)
-                        yield from gen(idx+1, cur)
-                        cur.pop()
-                yield from gen(0, [])
+                return
+            def gen(idx, cur):
+                if idx == len(cell_ends):
+                    yield list(cur)
+                    return
+                r, c = cell_ends[idx]
+                for v in corners(r, c):
+                    cur.append(v)
+                    yield from gen(idx+1, cur)
+                    cur.pop()
+            yield from gen(0, [])
 
-        def choices_boths():
-            # For each 'both' cell, pick two distinct corners (order irrelevant)
+        def cell_both_choices():
             if not cell_boths:
                 yield []
-            else:
-                def gen(idx, cur):
-                    if idx == len(cell_boths):
-                        yield list(cur)
-                        return
-                    r, c = cell_boths[idx]
-                    corners_list = corners(r, c)
-                    for i in range(len(corners_list)):
-                        for j in range(i+1, len(corners_list)):
-                            cur.append((corners_list[i], corners_list[j]))
-                            yield from gen(idx+1, cur)
-                            cur.pop()
-                yield from gen(0, [])
+                return
+            def gen(idx, cur):
+                if idx == len(cell_boths):
+                    yield list(cur)
+                    return
+                r, c = cell_boths[idx]
+                clist = corners(r, c)
+                for i in range(len(clist)):
+                    for j in range(i+1, len(clist)):
+                        cur.append((clist[i], clist[j]))
+                        yield from gen(idx+1, cur)
+                        cur.pop()
+            yield from gen(0, [])
 
-        # Vertex boths: each becomes a self‑loop (start = end = vertex)
-        for s_assignment in choices_starts():
-            for e_assignment in choices_ends():
-                for b_assignment in choices_boths():
-                    # starts = vertex_starts + cell starts
-                    starts = list(vertex_starts) + s_assignment
-                    # ends = vertex_ends + cell ends
-                    ends = list(vertex_ends) + e_assignment
-                    # self_loops = vertex_boths + both cell pairs converted to self-loops?
-                    # For cell both, we need a path connecting the two corners.
-                    # That can be treated as a start-end pair, not a self-loop.
-                    # So we'll add the two corners as a start-end pair.
-                    for (v1, v2) in b_assignment:
+        for s_assign in cell_start_choices():
+            for e_assign in cell_end_choices():
+                for b_assign in cell_both_choices():
+                    starts = list(vertex_starts) + s_assign
+                    ends   = list(vertex_ends)   + e_assign
+                    self_loops = list(vertex_boths)
+                    for v1, v2 in b_assign:
                         starts.append(v1)
                         ends.append(v2)
-                    # vertex_boths become self-loops (start=end=vertex)
-                    self_loops = list(vertex_boths)
                     yield starts, ends, self_loops
 
+    @staticmethod
+    def _product_assignments(assignments_per_color):
+        if not assignments_per_color:
+            yield []
+            return
+        first_list = assignments_per_color[0][1]
+        rest = assignments_per_color[1:]
+        for a in first_list:
+            for tail in Solver._product_assignments(rest):
+                yield [a] + tail
+
     # ------------------------------------------------------------------
-    # Colour‑specific solver
+    # Solve a single colour – try all pairings
     # ------------------------------------------------------------------
     def _solve_color(self, vgraph, starts, ends, self_loops,
-                     used_edges, vertex_degrees, vertex_colour, color):
-        """
-        Try to satisfy all terminals for `color` by finding paths.
-        Modifies used_edges, vertex_degrees, vertex_colour in place on success;
-        reverts on failure.
-        """
-        # We must pair up starts and ends arbitrarily.
-        # For now we assume equal numbers (should hold for valid puzzles).
+                     used_edges, degrees, colours, color):
         if len(starts) != len(ends):
             return False
 
-        # Build a list of (start, end) pairs that need to be connected.
-        pairs = list(zip(starts, ends))
-        for v in self_loops:
-            pairs.append((v, v))   # self-loop
+        pairs = [(v, v) for v in self_loops]
+        n = len(starts)
+        for perm in permutations(range(n)):
+            cur_pairs = list(pairs)
+            for i in range(n):
+                cur_pairs.append((starts[i], ends[perm[i]]))
+            # Save state
+            old_edges = set(used_edges)
+            old_deg   = dict(degrees)
+            old_col   = dict(colours)
+            if self._route_pairs(vgraph, cur_pairs, 0, used_edges, degrees, colours, color):
+                return True
+            # Revert
+            used_edges.clear(); used_edges.update(old_edges)
+            degrees.clear(); degrees.update(old_deg)
+            colours.clear(); colours.update(old_col)
+        return False
 
-        # Sort pairs by Manhattan distance to try promising ones first
-        pairs.sort(key=lambda p: abs(p[0][0]-p[1][0]) + abs(p[0][1]-p[1][1]))
-
-        # Use backtracking to find disjoint paths
-        return self._route_pairs(vgraph, pairs, 0, used_edges, vertex_degrees,
-                                 vertex_colour, color)
-
-    def _route_pairs(self, vgraph, pairs, idx, used_edges, vertex_degrees,
-                     vertex_colour, color):
+    def _route_pairs(self, vgraph, pairs, idx, used_edges, degrees, colours, color):
         if idx == len(pairs):
             return True
         s, e = pairs[idx]
-        # Find all simple paths from s to e that respect current usage.
-        paths = self._find_all_paths(vgraph, s, e, used_edges, vertex_degrees,
-                                     vertex_colour, color)
-        # Try each path
+        paths = self._find_all_paths(vgraph, s, e, used_edges, degrees, colours, color)
         for path in paths:
-            # Apply edges and degrees
-            self._apply_path(path, used_edges, vertex_degrees, vertex_colour, color)
-            if self._route_pairs(vgraph, pairs, idx+1, used_edges, vertex_degrees,
-                                 vertex_colour, color):
+            self._apply_path(path, used_edges, degrees, colours, color)
+            if self._route_pairs(vgraph, pairs, idx+1, used_edges, degrees, colours, color):
                 return True
-            # Revert
-            self._unapply_path(path, used_edges, vertex_degrees, vertex_colour, color)
+            self._unapply_path(path, used_edges, degrees, colours, color)
         return False
 
-    def _find_all_paths(self, vgraph, start, end, used_edges, vertex_degrees,
-                        vertex_colour, color, max_length=50):
-        """
-        Return all simple paths from start to end that can be added without
-        violating degree/colour constraints.
-        max_length limits search; increase if needed for large puzzles.
-        """
+    def _find_all_paths(self, vgraph, start, end, used_edges, degrees, colours, color, max_len=100):
         results = []
-        # DFS for all simple paths
         def dfs(current, path, visited):
-            if len(path) > max_length:
+            if len(path) > max_len:
                 return
             if current == end and len(path) > 1:
                 results.append(list(path))
                 return
             for nb in vgraph.get(current, []):
-                edge = tuple(sorted([current, nb]))
+                edge = tuple(sorted((current, nb)))
                 if edge in used_edges:
                     continue
-                # Degree check: each endpoint (start/end) can have degree up to 1 (or 2 for self-loop)
-                # but we'll allow adding edges as long as final degree won't exceed 2.
-                # We check that the degree of current and nb after adding would be ≤2.
-                if vertex_degrees.get(current, 0) >= 2:
+                if degrees.get(current, 0) >= 2:
                     continue
-                if vertex_degrees.get(nb, 0) >= 2:
+                if degrees.get(nb, 0) >= 2:
                     continue
-                # Colour check: interior vertices must belong to exactly one colour
-                if nb != end and nb in vertex_colour and vertex_colour[nb] != color:
+                if nb != end and nb in colours and colours[nb] != color:
                     continue
                 if nb not in visited:
                     visited.add(nb)
@@ -367,58 +342,23 @@ class Solver:
         dfs(start, [start], {start})
         return results
 
-    def _apply_path(self, path, used_edges, vertex_degrees, vertex_colour, color):
+    def _apply_path(self, path, used_edges, degrees, colours, color):
         for i in range(len(path)-1):
             v1, v2 = path[i], path[i+1]
-            edge = tuple(sorted([v1, v2]))
+            edge = tuple(sorted((v1, v2)))
             used_edges.add(edge)
-            vertex_degrees[v1] = vertex_degrees.get(v1, 0) + 1
-            vertex_degrees[v2] = vertex_degrees.get(v2, 0) + 1
-        # Mark interior vertices with this colour
+            degrees[v1] = degrees.get(v1, 0) + 1
+            degrees[v2] = degrees.get(v2, 0) + 1
         for v in path[1:-1]:
-            vertex_colour[v] = color
+            colours[v] = color
 
-    def _unapply_path(self, path, used_edges, vertex_degrees, vertex_colour, color):
+    def _unapply_path(self, path, used_edges, degrees, colours, color):
         for i in range(len(path)-1):
             v1, v2 = path[i], path[i+1]
-            edge = tuple(sorted([v1, v2]))
+            edge = tuple(sorted((v1, v2)))
             used_edges.discard(edge)
-            vertex_degrees[v1] = vertex_degrees.get(v1, 0) - 1
-            vertex_degrees[v2] = vertex_degrees.get(v2, 0) - 1
+            degrees[v1] = degrees.get(v1, 0) - 1
+            degrees[v2] = degrees.get(v2, 0) - 1
         for v in path[1:-1]:
-            if vertex_colour.get(v) == color:
-                del vertex_colour[v]
-
-    # ------------------------------------------------------------------
-    # Conversion from vertex edges to cell‑pair edges
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _vertex_edges_to_cell_edges(vertex_edges: Set[VertexEdge],
-                                    state: PuzzleState) -> Set[Edge]:
-        """Map each vertex‑edge to the unique cell‑pair edge it divides."""
-        cell_edges = set()
-        for (v1, v2) in vertex_edges:
-            r1, c1 = v1
-            r2, c2 = v2
-            if r1 == r2:          # horizontal edge
-                r = r1
-                c = max(c1, c2)
-                cell1 = (r-1, c)
-                cell2 = (r, c)
-            else:                 # vertical edge
-                c = c1
-                r = max(r1, r2)
-                cell1 = (r, c-1)
-                cell2 = (r, c)
-            cell_edges.add(tuple(sorted([cell1, cell2])))
-        return cell_edges
-
-    # ------------------------------------------------------------------
-    # Final rule check
-    # ------------------------------------------------------------------
-    def _is_valid(self, state: PuzzleState, cell_edges: Set[Edge]) -> bool:
-        old_lines = state.lines
-        state.lines = cell_edges
-        valid = state.is_solved()
-        state.lines = old_lines
-        return valid
+            if colours.get(v) == color:
+                del colours[v]
