@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planar Graph Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- ── Header toolbar ──────────────────────────────────────────── -->
+  <header id="toolbar">
+    <div class="toolbar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">GRAPH<span class="brand-accent">LAB</span></span>
+    </div>
+
+    <div class="toolbar-modes">
+      <button class="mode-btn active" data-mode="select" title="Select (S)">
+        <svg viewBox="0 0 16 16"><path d="M2 2l12 5-5 2-2 5z"/></svg>
+        <span>Select</span>
+      </button>
+      <button class="mode-btn" data-mode="add-vertex" title="Add Vertex (V)">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4"/><line x1="8" y1="1" x2="8" y2="15"/><line x1="1" y1="8" x2="15" y2="8"/></svg>
+        <span>Vertex</span>
+      </button>
+      <button class="mode-btn" data-mode="add-edge" title="Add Edge (E)">
+        <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="2.5"/><circle cx="13" cy="8" r="2.5"/><line x1="5.5" y1="8" x2="10.5" y2="8"/></svg>
+        <span>Edge</span>
+      </button>
+      <button class="mode-btn" data-mode="delete" title="Delete (D)">
+        <svg viewBox="0 0 16 16"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+        <span>Delete</span>
+      </button>
+    </div>
+
+    <div class="toolbar-actions">
+      <button class="action-btn" id="btn-grid" title="Insert grid template">
+        <svg viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6"/><rect x="9" y="1" width="6" height="6"/><rect x="1" y="9" width="6" height="6"/><rect x="9" y="9" width="6" height="6"/></svg>
+        Grid
+      </button>
+      <button class="action-btn" id="btn-fit" title="Fit to content">
+        <svg viewBox="0 0 16 16"><polyline points="1,5 1,1 5,1"/><polyline points="11,1 15,1 15,5"/><polyline points="15,11 15,15 11,15"/><polyline points="5,15 1,15 1,11"/></svg>
+        Fit
+      </button>
+      <button class="action-btn danger" id="btn-reset" title="Clear graph">
+        <svg viewBox="0 0 16 16"><path d="M13 3L3 13M3 3l10 10"/></svg>
+        Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main workspace ──────────────────────────────────────────── -->
+  <main id="workspace">
+
+    <!-- Canvas -->
+    <div id="canvas-container">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="dot-grid" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+            <circle cx="20" cy="20" r="0.8" fill="var(--grid-dot)"/>
+          </pattern>
+          <filter id="glow-cyan">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-amber">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- Background -->
+        <rect id="canvas-bg" x="-100000" y="-100000" width="200000" height="200000" fill="url(#dot-grid)"/>
+
+        <!-- Graph layers -->
+        <g id="faces-layer"></g>
+        <g id="edges-layer"></g>
+        <g id="vertices-layer"></g>
+        <g id="interaction-layer"></g>
+      </svg>
+
+      <!-- Zoom controls -->
+      <div id="zoom-controls">
+        <button id="zoom-in" title="Zoom in">+</button>
+        <span id="zoom-level">100%</span>
+        <button id="zoom-out" title="Zoom out">−</button>
+      </div>
+
+      <!-- Canvas hint -->
+      <div id="canvas-hint"></div>
+    </div>
+
+    <!-- Inspector panel -->
+    <aside id="inspector">
+      <div id="inspector-header">
+        <span id="inspector-title">INSPECTOR</span>
+        <span id="inspector-badge"></span>
+      </div>
+      <div id="inspector-body">
+        <div id="inspector-empty">
+          <div class="empty-icon">◎</div>
+          <p>Hover over a vertex, edge, or face to inspect it.</p>
+        </div>
+        <div id="inspector-content" class="hidden"></div>
+      </div>
+      <div id="inspector-stats">
+        <div class="stat"><span class="stat-label">V</span><span id="stat-v">0</span></div>
+        <div class="stat"><span class="stat-label">E</span><span id="stat-e">0</span></div>
+        <div class="stat"><span class="stat-label">F</span><span id="stat-f">0</span></div>
+        <div class="stat" title="Euler characteristic V - E + F"><span class="stat-label">χ</span><span id="stat-euler">—</span></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ── Status bar ─────────────────────────────────────────────── -->
+  <footer id="statusbar">
+    <span id="status-mode">MODE: SELECT</span>
+    <span id="status-coords">x: 0.00  y: 0.00</span>
+    <span id="status-hint">Click to select elements</span>
+  </footer>
+
+  <!-- ── Grid template modal ────────────────────────────────────── -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal-grid">
+      <div class="modal-header">
+        <span>INSERT GRID TEMPLATE</span>
+        <button id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <label for="grid-rows">Rows (N)</label>
+          <input type="number" id="grid-rows" value="3" min="2" max="20">
+        </div>
+        <div class="field-row">
+          <label for="grid-cols">Cols (M)</label>
+          <input type="number" id="grid-cols" value="4" min="2" max="20">
+        </div>
+        <div class="field-row">
+          <label for="grid-spacing">Spacing</label>
+          <input type="number" id="grid-spacing" value="100" min="20" max="500">
+        </div>
+        <div class="modal-preview" id="grid-preview"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="action-btn" id="modal-cancel">Cancel</button>
+        <button class="action-btn primary" id="modal-insert">Insert</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts (load order matters — no ES modules) -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/state.js"></script>
+  <script src="/static/js/inspector.js"></script>
+  <script src="/static/js/canvas.js"></script>
+  <script src="/static/js/toolbar.js"></script>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
